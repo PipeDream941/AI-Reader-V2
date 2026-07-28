@@ -35,7 +35,7 @@ interface AnalysisState {
   qualitySummary: AnalysisQualitySummary | null
   stageLabel: string | null
   llmModel: string | null
-  llmProvider: string | null // "ollama" | "openai"
+  llmProvider: string | null // "ollama" | "openai" | "codex"
   failedChapters: FailedChapter[]
   retryProgress: RetryProgress | null
   ws: WebSocket | null

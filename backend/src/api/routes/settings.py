@@ -219,7 +219,7 @@ class ValidateCloudRequest(BaseModel):
 
 
 class SwitchModeRequest(BaseModel):
-    mode: str  # "ollama" or "openai"
+    mode: str  # "ollama", "openai", or "codex"
     ollama_model: str | None = None
 
 
@@ -247,13 +247,21 @@ async def get_settings():
 
 @router.get("/health-check")
 async def health_check():
-    """Check LLM connectivity — always returns both Ollama and cloud status."""
+    """Check connectivity for Ollama, cloud APIs, and the Codex CLI."""
     from src.infra import config
+    from src.infra.codex_exec_client import check_codex_cli
 
-    ollama_result = await _check_ollama()
-    openai_result = await _check_openai()
-    # Merge: ollama fields as base, overlay cloud fields, set active provider
-    merged = {**ollama_result, **openai_result}
+    ollama_result, openai_result, codex_status = await asyncio.gather(
+        _check_ollama(),
+        _check_openai(),
+        check_codex_cli(config.CODEX_BIN),
+    )
+    # Merge provider-specific fields and expose one stable Codex status object.
+    merged = {
+        **ollama_result,
+        **openai_result,
+        "codex": codex_status,
+    }
     merged["llm_provider"] = config.LLM_PROVIDER
     merged["llm_model"] = config.get_model_name()
     merged["llm_base_url"] = config.LLM_BASE_URL
@@ -626,13 +634,50 @@ async def validate_cloud_api(req: ValidateCloudRequest):
 # ── Mode switching & advanced settings ──────────────
 
 
-@router.post("/llm-mode")
-async def switch_llm_mode(req: SwitchModeRequest):
-    """Switch between Ollama and cloud LLM mode."""
+async def _count_open_analysis_tasks() -> int:
+    """Count tasks that could resume and accidentally switch providers."""
     from src.db.sqlite_db import get_connection
 
-    if req.mode not in ("ollama", "openai"):
-        return {"success": False, "error": "无效模式，请选择 ollama 或 openai"}
+    conn = await get_connection()
+    try:
+        cursor = await conn.execute(
+            "SELECT COUNT(*) FROM analysis_tasks "
+            "WHERE status IN ('running', 'paused')",
+        )
+        row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+    finally:
+        await conn.close()
+
+
+@router.post("/llm-mode")
+async def switch_llm_mode(req: SwitchModeRequest):
+    """Switch between Ollama, cloud API, and Codex CLI modes."""
+    from src.db.sqlite_db import get_connection
+
+    if req.mode not in ("ollama", "openai", "codex"):
+        return {
+            "success": False,
+            "error": "无效模式，请选择 ollama、openai 或 codex",
+        }
+
+    open_task_count = await _count_open_analysis_tasks()
+    if open_task_count:
+        return {
+            "success": False,
+            "error": (
+                f"当前有 {open_task_count} 个运行或暂停中的分析任务。"
+                "请先完成或取消任务，再切换 AI 引擎。"
+            ),
+        }
+
+    if req.mode == "codex":
+        from src.infra import config
+        from src.infra.codex_exec_client import check_codex_cli
+
+        status = await check_codex_cli(config.CODEX_BIN)
+        if not status["available"] or not status["authenticated"]:
+            return {"success": False, "error": status["error"]}
 
     conn = await get_connection()
     try:
@@ -651,7 +696,7 @@ async def switch_llm_mode(req: SwitchModeRequest):
 
         model = req.ollama_model or "qwen3:8b"
         switch_to_ollama(model)
-    else:
+    elif req.mode == "openai":
         # Cloud mode — load saved config
         from src.infra.config import update_cloud_config
         from src.infra.secret_store import load_api_key
@@ -676,6 +721,10 @@ async def switch_llm_mode(req: SwitchModeRequest):
             base_url=cloud_cfg.get("cloud_base_url", ""),
             model=cloud_cfg.get("cloud_model", ""),
         )
+    else:
+        from src.infra.config import switch_to_codex
+
+        switch_to_codex()
 
     # Re-detect context window for the new mode/model
     from src.infra.context_budget import detect_and_update_context_window
@@ -686,11 +735,8 @@ async def switch_llm_mode(req: SwitchModeRequest):
 
 @router.get("/running-tasks")
 async def get_running_tasks():
-    """Return the count of currently running analysis tasks."""
-    from src.services.analysis_service import get_analysis_service
-
-    service = get_analysis_service()
-    return {"running_count": len(service._active_loops)}
+    """Return tasks that prevent a safe provider switch."""
+    return {"running_count": await _count_open_analysis_tasks()}
 
 
 @router.post("/restore-defaults")

@@ -403,12 +403,86 @@ async def test_switch_to_ollama():
     """Should switch to Ollama mode and update runtime config."""
     req = SwitchModeRequest(mode="ollama", ollama_model="qwen3:4b")
 
-    with patch("src.db.sqlite_db.get_connection", _mock_get_connection()):
-        with patch("src.infra.config.switch_to_ollama"):
-            result = await switch_llm_mode(req)
+    with patch(
+        "src.api.routes.settings._count_open_analysis_tasks",
+        new=AsyncMock(return_value=0),
+    ):
+        with patch("src.db.sqlite_db.get_connection", _mock_get_connection()):
+            with patch("src.infra.config.switch_to_ollama"):
+                result = await switch_llm_mode(req)
 
     assert result["success"] is True
     assert result["mode"] == "ollama"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_switch_to_codex_after_successful_preflight():
+    """Should persist and activate Codex only after the CLI is ready."""
+    req = SwitchModeRequest(mode="codex")
+    status = {
+        "available": True,
+        "authenticated": True,
+        "version": "codex-cli 1.2.3",
+        "auth_method": "chatgpt",
+        "error": "",
+    }
+
+    with patch(
+        "src.api.routes.settings._count_open_analysis_tasks",
+        new=AsyncMock(return_value=0),
+    ):
+        with patch(
+            "src.infra.codex_exec_client.check_codex_cli",
+            new=AsyncMock(return_value=status),
+        ):
+            with patch("src.db.sqlite_db.get_connection", _mock_get_connection()):
+                with patch("src.infra.config.switch_to_codex") as mock_switch:
+                    result = await switch_llm_mode(req)
+
+    assert result == {"success": True, "mode": "codex"}
+    mock_switch.assert_called_once_with()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_switch_to_codex_rejects_missing_login_without_persisting():
+    req = SwitchModeRequest(mode="codex")
+    get_connection = _mock_get_connection()
+    status = {
+        "available": True,
+        "authenticated": False,
+        "version": "codex-cli 1.2.3",
+        "auth_method": "",
+        "error": "Codex CLI 尚未登录",
+    }
+
+    with patch(
+        "src.api.routes.settings._count_open_analysis_tasks",
+        new=AsyncMock(return_value=0),
+    ):
+        with patch(
+            "src.infra.codex_exec_client.check_codex_cli",
+            new=AsyncMock(return_value=status),
+        ):
+            with patch("src.db.sqlite_db.get_connection", get_connection):
+                result = await switch_llm_mode(req)
+
+    assert result["success"] is False
+    assert "尚未登录" in result["error"]
+    get_connection.assert_not_awaited()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_switch_rejects_open_analysis_tasks():
+    req = SwitchModeRequest(mode="codex")
+
+    with patch(
+        "src.api.routes.settings._count_open_analysis_tasks",
+        new=AsyncMock(return_value=2),
+    ):
+        result = await switch_llm_mode(req)
+
+    assert result["success"] is False
+    assert "2 个运行或暂停中" in result["error"]
 
 
 @pytest.mark.asyncio(loop_scope="session")

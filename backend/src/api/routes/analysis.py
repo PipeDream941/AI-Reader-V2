@@ -51,6 +51,23 @@ def _enforce_codex_batch_limit(chapter_start: int, chapter_end: int) -> None:
         )
 
 
+async def _ensure_active_provider_ready() -> None:
+    """Fail synchronously when the selected provider cannot accept work."""
+    from src.infra import config
+
+    if config.LLM_PROVIDER != "codex":
+        return
+
+    from src.infra.codex_exec_client import check_codex_cli
+
+    status = await check_codex_cli(config.CODEX_BIN)
+    if not status["available"] or not status["authenticated"]:
+        raise HTTPException(
+            status_code=503,
+            detail=status["error"],
+        )
+
+
 @router.get("/analysis/active")
 async def get_active_analyses():
     """Return novel IDs with their active analysis status (running/paused/retrying)."""
@@ -169,6 +186,7 @@ async def start_analysis(novel_id: str, req: AnalyzeRequest | None = None):
         raise HTTPException(status_code=400, detail="无效的章节范围")
 
     _enforce_codex_batch_limit(chapter_start, chapter_end)
+    await _ensure_active_provider_ready()
 
     force = req.force if req else False
 

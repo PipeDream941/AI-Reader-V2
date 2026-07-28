@@ -30,6 +30,19 @@ function formatTokens(n: number): string {
   return String(n)
 }
 
+function engineDisplayName(provider: string | undefined): string {
+  if (provider === "openai") return "云端 API"
+  if (provider === "codex") return "Codex 会员"
+  return "本地 Ollama"
+}
+
+function codexAuthMethodLabel(method: string | undefined): string {
+  if (method === "chatgpt") return "ChatGPT"
+  if (method === "api_key") return "API Key"
+  if (method === "access_token") return "访问令牌"
+  return method || "未知"
+}
+
 function formatDateTime(iso: string | null): string {
   if (!iso) return "-"
   const d = new Date(iso)
@@ -60,7 +73,10 @@ export default function SettingsPage() {
       .finally(() => setEnvLoading(false))
 
     fetchSettings().then((data) => {
-      const mode = data.settings.llm_provider === "openai" ? "openai" : "ollama"
+      const provider = data.settings.llm_provider
+      const mode = provider === "openai" || provider === "codex"
+        ? provider
+        : "ollama"
       setViewTab(mode)
       setSelectedOllamaModel(data.settings.ollama_model)
     }).catch(() => {})
@@ -122,13 +138,14 @@ export default function SettingsPage() {
   // Mode tab & advanced settings
   // viewTab: which tab panel is visible (pure UI navigation)
   // activeEngine: which engine the backend actually uses (from envCheck)
-  const [viewTab, setViewTab] = useState<"ollama" | "openai">("ollama")
+  const [viewTab, setViewTab] = useState<"ollama" | "openai" | "codex">("ollama")
   const [modeSwitching, setModeSwitching] = useState(false)
+  const [switchError, setSwitchError] = useState<string | null>(null)
+  const [codexLoginCopied, setCodexLoginCopied] = useState(false)
   const [restoring, setRestoring] = useState(false)
   const [selectedOllamaModel, setSelectedOllamaModel] = useState("")
   // Switch confirmation dialog
   const [showSwitchDialog, setShowSwitchDialog] = useState(false)
-  const [runningTaskCount, setRunningTaskCount] = useState(0)
 
   // Budget state
   const [budgetAmount, setBudgetAmount] = useState(50)
@@ -273,13 +290,29 @@ export default function SettingsPage() {
 
   // Initiate switch: check running tasks, then show confirmation dialog
   const handleRequestSwitch = useCallback(async () => {
+    setSwitchError(null)
     try {
       const { running_count } = await fetchRunningTasks()
-      setRunningTaskCount(running_count)
+      if (running_count > 0) {
+        setSwitchError(
+          `当前有 ${running_count} 个运行或暂停中的分析任务。请先完成或取消任务，再切换 AI 引擎。`,
+        )
+        return
+      }
     } catch {
-      setRunningTaskCount(0)
+      // The backend repeats this guard, so a transient check failure remains safe.
     }
     setShowSwitchDialog(true)
+  }, [])
+
+  const handleCopyCodexLogin = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText("codex login")
+      setCodexLoginCopied(true)
+      window.setTimeout(() => setCodexLoginCopied(false), 1500)
+    } catch {
+      setCodexLoginCopied(false)
+    }
   }, [])
 
   // Confirmed switch — actually call the backend
@@ -287,10 +320,20 @@ export default function SettingsPage() {
     setShowSwitchDialog(false)
     const targetMode = viewTab  // switch to whatever tab the user is viewing
     setModeSwitching(true)
+    setSwitchError(null)
     try {
-      await switchLlmMode(targetMode, targetMode === "ollama" ? selectedOllamaModel || "qwen3:8b" : undefined)
+      const result = await switchLlmMode(
+        targetMode,
+        targetMode === "ollama" ? selectedOllamaModel || "qwen3:8b" : undefined,
+      )
+      if (!result.success) {
+        setSwitchError(result.error || "切换失败")
+        return
+      }
       refreshEnv()
-    } catch { /* ignore */ }
+    } catch (error) {
+      setSwitchError(error instanceof Error ? error.message : "切换失败")
+    }
     finally { setModeSwitching(false) }
   }, [viewTab, selectedOllamaModel])
 
@@ -485,47 +528,58 @@ export default function SettingsPage() {
             <h2 className="text-base font-medium mb-4">AI 引擎</h2>
 
             {/* Active engine status banner */}
-            {envCheck && !envLoading && (
-              <div className={cn(
-                "mb-3 flex items-center gap-3 rounded-lg border px-4 py-2.5",
-                envCheck.llm_provider === "openai"
-                  ? envCheck.api_available
-                    ? "border-green-200 bg-green-50/60 dark:border-green-900 dark:bg-green-950/20"
-                    : "border-yellow-200 bg-yellow-50/60 dark:border-yellow-900 dark:bg-yellow-950/20"
-                  : envCheck.ollama_status === "running" && envCheck.model_available
+            {envCheck && !envLoading && (() => {
+              const codexReady = envCheck.codex?.available === true
+                && envCheck.codex.authenticated === true
+              const ready = envCheck.llm_provider === "openai"
+                ? envCheck.api_available === true
+                : envCheck.llm_provider === "codex"
+                  ? codexReady
+                  : envCheck.ollama_status === "running" && envCheck.model_available === true
+              const statusText = envCheck.llm_provider === "openai"
+                ? envCheck.api_available
+                  ? `已连接 · ${envCheck.llm_base_url || ""}`
+                  : "未连接 — 请检查 API 配置"
+                : envCheck.llm_provider === "codex"
+                  ? codexReady
+                    ? `已连接 · ${codexAuthMethodLabel(envCheck.codex?.auth_method)}`
+                    : envCheck.codex?.available
+                      ? "未连接 — Codex CLI 尚未登录"
+                      : "未连接 — 未安装 Codex CLI"
+                  : envCheck.ollama_status === "running"
+                    ? envCheck.model_available
+                      ? "运行中"
+                      : `运行中 · 模型 ${envCheck.llm_model} 未安装`
+                    : envCheck.ollama_status === "installed_not_running"
+                      ? "已安装但未运行"
+                      : "未安装 Ollama"
+              return (
+                <div className={cn(
+                  "mb-3 flex items-center gap-3 rounded-lg border px-4 py-2.5",
+                  ready
                     ? "border-green-200 bg-green-50/60 dark:border-green-900 dark:bg-green-950/20"
                     : "border-yellow-200 bg-yellow-50/60 dark:border-yellow-900 dark:bg-yellow-950/20",
-              )}>
-                <span className={cn(
-                  "inline-block h-2.5 w-2.5 shrink-0 rounded-full",
-                  envCheck.llm_provider === "openai"
-                    ? envCheck.api_available ? "bg-green-500" : "bg-yellow-500"
-                    : envCheck.ollama_status === "running" && envCheck.model_available
-                      ? "bg-green-500" : "bg-yellow-500",
-                )} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">
-                      {envCheck.llm_provider === "openai" ? "云端 API" : "本地 Ollama"}
-                    </span>
-                    <span className="rounded bg-background/80 px-1.5 py-0.5 text-xs font-mono text-muted-foreground">
-                      {envCheck.llm_model || "未配置"}
-                    </span>
+                )}>
+                  <span className={cn(
+                    "inline-block h-2.5 w-2.5 shrink-0 rounded-full",
+                    ready ? "bg-green-500" : "bg-yellow-500",
+                  )} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">
+                        {engineDisplayName(envCheck.llm_provider)}
+                      </span>
+                      <span className="rounded bg-background/80 px-1.5 py-0.5 text-xs font-mono text-muted-foreground">
+                        {envCheck.llm_model || "未配置"}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {statusText}
+                    </p>
                   </div>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {envCheck.llm_provider === "openai"
-                      ? envCheck.api_available
-                        ? `已连接 · ${envCheck.llm_base_url || ""}`
-                        : "未连接 — 请检查 API 配置"
-                      : envCheck.ollama_status === "running"
-                        ? envCheck.model_available ? "运行中" : `运行中 · 模型 ${envCheck.llm_model} 未安装`
-                        : envCheck.ollama_status === "installed_not_running"
-                          ? "已安装但未运行"
-                          : "未安装 Ollama"}
-                  </p>
                 </div>
-              </div>
-            )}
+              )
+            })()}
 
             <div className="border rounded-lg overflow-hidden">
               {/* Mode tabs — pure navigation, no backend switching */}
@@ -540,7 +594,7 @@ export default function SettingsPage() {
                   onClick={() => setViewTab("ollama")}
                 >
                   本地 Ollama
-                  {envCheck?.llm_provider !== "openai" && (
+                  {envCheck?.llm_provider === "ollama" && (
                     <span className="ml-1.5 inline-block rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] text-green-600 dark:bg-green-900/40 dark:text-green-300">
                       使用中
                     </span>
@@ -557,6 +611,22 @@ export default function SettingsPage() {
                 >
                   云端 API
                   {envCheck?.llm_provider === "openai" && (
+                    <span className="ml-1.5 inline-block rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] text-green-600 dark:bg-green-900/40 dark:text-green-300">
+                      使用中
+                    </span>
+                  )}
+                </button>
+                <button
+                  className={cn(
+                    "flex-1 py-2.5 text-sm font-medium text-center transition-colors relative",
+                    viewTab === "codex"
+                      ? "bg-background text-foreground border-b-2 border-blue-500"
+                      : "bg-muted/30 text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => setViewTab("codex")}
+                >
+                  Codex 会员
+                  {envCheck?.llm_provider === "codex" && (
                     <span className="ml-1.5 inline-block rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] text-green-600 dark:bg-green-900/40 dark:text-green-300">
                       使用中
                     </span>
@@ -835,7 +905,7 @@ export default function SettingsPage() {
                     )}
 
                     {/* Switch button — only when Ollama is NOT the active engine */}
-                    {envCheck?.llm_provider === "openai" && (
+                    {envCheck?.llm_provider !== "ollama" && (
                       <div className="border-t pt-3 mt-3">
                         <Button
                           onClick={handleRequestSwitch}
@@ -857,7 +927,7 @@ export default function SettingsPage() {
                       </div>
                     )}
                   </>
-                ) : (
+                ) : viewTab === "openai" ? (
                   /* ── Cloud API Tab ── */
                   <>
                     {envCheck?.llm_provider === "openai" && (
@@ -1169,6 +1239,121 @@ export default function SettingsPage() {
                       </div>
                     )}
                   </>
+                ) : (
+                  /* ── Codex CLI Tab ── */
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">Codex CLI</span>
+                      <span
+                        className={cn(
+                          "text-xs px-2 py-0.5 rounded-full",
+                          envCheck?.codex?.available
+                            ? "bg-green-50 text-green-600 dark:bg-green-950/30"
+                            : "bg-red-50 text-red-600 dark:bg-red-950/30",
+                        )}
+                      >
+                        {envCheck?.codex?.available ? "已安装" : "未安装"}
+                      </span>
+                    </div>
+
+                    {envCheck?.codex?.version && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm">版本</span>
+                        <span className="text-xs font-mono text-muted-foreground">
+                          {envCheck.codex.version}
+                        </span>
+                      </div>
+                    )}
+
+                    {envCheck?.codex?.available && (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm">登录状态</span>
+                          <span
+                            className={cn(
+                              "text-xs px-2 py-0.5 rounded-full",
+                              envCheck.codex.authenticated
+                                ? "bg-green-50 text-green-600 dark:bg-green-950/30"
+                                : "bg-yellow-50 text-yellow-600 dark:bg-yellow-950/30",
+                            )}
+                          >
+                            {envCheck.codex.authenticated ? "已登录" : "未登录"}
+                          </span>
+                        </div>
+                        {envCheck.codex.authenticated && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">登录方式</span>
+                            <span className="text-xs text-muted-foreground">
+                              {codexAuthMethodLabel(envCheck.codex.auth_method)}
+                            </span>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    <div className="rounded-md bg-muted/40 p-3 text-xs text-muted-foreground space-y-1">
+                      <p>
+                        复用 Codex CLI 已保存的登录态，使用 ChatGPT/Codex
+                        订阅额度，不按 Platform API 价格计费。
+                      </p>
+                      <p>AI Reader 不读取或保存你的 Codex 凭据。</p>
+                    </div>
+
+                    {envCheck?.codex?.error && (
+                      <p className="text-xs text-red-500">{envCheck.codex.error}</p>
+                    )}
+
+                    {!envCheck?.codex?.available && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openExternal("https://developers.openai.com/codex/cli/")}
+                      >
+                        查看 Codex CLI 安装说明
+                      </Button>
+                    )}
+
+                    {envCheck?.codex?.available && !envCheck.codex.authenticated && (
+                      <div className="rounded-md border p-3 space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          请先在终端完成官方登录流程：
+                        </p>
+                        <div className="flex items-center justify-between gap-3 rounded bg-muted/50 px-3 py-2">
+                          <code className="text-xs font-mono">codex login</code>
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={handleCopyCodexLogin}
+                          >
+                            {codexLoginCopied ? "已复制" : "复制"}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    {envCheck?.llm_provider !== "codex" && (
+                      <div className="border-t pt-3 mt-3">
+                        <Button
+                          onClick={handleRequestSwitch}
+                          disabled={
+                            modeSwitching
+                            || envCheck?.codex?.available !== true
+                            || envCheck?.codex?.authenticated !== true
+                          }
+                          size="sm"
+                        >
+                          {modeSwitching ? "切换中..." : "切换到此引擎"}
+                        </Button>
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          {envCheck?.codex?.available !== true
+                            ? "请先安装 Codex CLI"
+                            : envCheck?.codex?.authenticated !== true
+                              ? "请先在终端运行 codex login"
+                              : "切换后新的分析任务将使用 Codex 会员额度"}
+                        </p>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {/* Footer: refresh + restore */}
@@ -1185,6 +1370,9 @@ export default function SettingsPage() {
                     {restoring ? "恢复中..." : "恢复默认"}
                   </Button>
                 </div>
+                {switchError && (
+                  <p className="text-xs text-red-500">{switchError}</p>
+                )}
               </div>
             </div>
 
@@ -1192,25 +1380,17 @@ export default function SettingsPage() {
             {showSwitchDialog && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
                 <div className="mx-4 w-full max-w-sm rounded-lg border bg-background p-5 shadow-lg">
-                  <h3 className="text-sm font-medium mb-3">
-                    {runningTaskCount > 0 ? "⚠ 切换 AI 引擎" : "切换 AI 引擎"}
-                  </h3>
-
-                  {runningTaskCount > 0 && (
-                    <div className="mb-3 rounded-md border border-yellow-200 bg-yellow-50/60 px-3 py-2 text-xs dark:border-yellow-900 dark:bg-yellow-950/20">
-                      <p className="font-medium text-yellow-700 dark:text-yellow-300">
-                        当前有 {runningTaskCount} 个分析任务正在运行
-                      </p>
-                      <ul className="mt-1 space-y-0.5 text-yellow-600 dark:text-yellow-400">
-                        <li>· 进行中的分析将继续使用原引擎完成</li>
-                        <li>· 新启动的分析将使用新引擎</li>
-                      </ul>
-                    </div>
-                  )}
+                  <h3 className="text-sm font-medium mb-3">切换 AI 引擎</h3>
 
                   <p className="text-sm text-muted-foreground mb-4">
-                    确定从「{envCheck?.llm_provider === "openai" ? "云端 API" : "本地 Ollama"} · {envCheck?.llm_model || "unknown"}」
-                    切换到「{viewTab === "openai" ? "云端 API" : "本地 Ollama"} · {viewTab === "openai" ? (cloudModel || cloudConfig?.model || "?") : (selectedOllamaModel || "qwen3:8b")}」？
+                    确定从「{engineDisplayName(envCheck?.llm_provider)} · {envCheck?.llm_model || "unknown"}」
+                    切换到「{engineDisplayName(viewTab)} · {
+                      viewTab === "openai"
+                        ? cloudModel || cloudConfig?.model || "?"
+                        : viewTab === "codex"
+                          ? envCheck?.codex?.version || "Codex CLI"
+                          : selectedOllamaModel || "qwen3:8b"
+                    }」？
                   </p>
 
                   <div className="flex justify-end gap-2">

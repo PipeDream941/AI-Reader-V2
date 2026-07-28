@@ -3,7 +3,7 @@ import { checkEnvironment } from "@/api/client"
 
 interface LlmInfoState {
   model: string | null
-  provider: string | null // "ollama" | "openai"
+  provider: string | null // "ollama" | "openai" | "codex"
   loading: boolean
   /** Fetch LLM info from backend health-check. Cached — only fetches once per session unless force=true. */
   fetch: (force?: boolean) => Promise<void>
@@ -32,12 +32,16 @@ export const useLlmInfoStore = create<LlmInfoState>((set, get) => ({
   },
 }))
 
-/** Format model label for display: "qwen3:8b（本地）" or "deepseek-chat（云端）" */
+/** Format model label for display across local, cloud, and Codex providers. */
 export function formatLlmLabel(
   model: string | null | undefined,
   provider: string | null | undefined,
 ): string {
   if (!model) return ""
-  const suffix = provider === "openai" ? "（云端）" : "（本地）"
+  const suffix = provider === "openai"
+    ? "（云端）"
+    : provider === "codex"
+      ? "（Codex）"
+      : "（本地）"
   return `${model}${suffix}`
 }

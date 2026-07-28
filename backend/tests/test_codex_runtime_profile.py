@@ -40,6 +40,28 @@ async def test_explicit_codex_env_wins_over_persisted_ui_mode(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_persisted_codex_mode_is_restored(monkeypatch):
+    monkeypatch.setattr(config, "LLM_PROVIDER", "ollama")
+    conn = AsyncMock()
+
+    async def execute(_query, args):
+        cursor = AsyncMock()
+        value = "codex" if args[0] == "llm_mode" else None
+        cursor.fetchone.return_value = (value,) if value else None
+        return cursor
+
+    conn.execute.side_effect = execute
+    get_connection = AsyncMock(return_value=conn)
+
+    with patch("src.db.sqlite_db.get_connection", get_connection):
+        with patch("src.infra.config.switch_to_codex") as switch:
+            await _restore_persisted_settings()
+
+    switch.assert_called_once_with()
+    conn.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_health_exposes_quota_sensitive_codex_profile(monkeypatch):
     monkeypatch.setattr(config, "LLM_PROVIDER", "codex")
     monkeypatch.setattr(config, "CODEX_MODEL", "")

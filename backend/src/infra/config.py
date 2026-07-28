@@ -120,6 +120,16 @@ def switch_to_ollama(model: str = "qwen3:8b") -> None:
     _reset_llm_client()
 
 
+def switch_to_codex() -> None:
+    """Hot-switch to the Codex CLI provider."""
+    global LLM_PROVIDER, LLM_PROVIDER_FORMAT  # noqa: PLW0603
+
+    LLM_PROVIDER = "codex"
+    LLM_PROVIDER_FORMAT = "openai"
+
+    _reset_llm_client()
+
+
 def _reset_llm_client() -> None:
     """Reset cached LLM client and notify AnalysisService singleton."""
     from src.infra import llm_client

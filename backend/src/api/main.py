@@ -64,7 +64,9 @@ async def _restore_persisted_settings() -> None:
             config.update_max_tokens(int(settings["llm_max_tokens"]))
 
         mode = settings.get("llm_mode", "ollama")
-        if mode == "openai":
+        if mode == "codex":
+            config.switch_to_codex()
+        elif mode == "openai":
             from src.infra.secret_store import load_api_key
 
             api_key = await load_api_key() or ""

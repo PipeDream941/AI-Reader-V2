@@ -12,6 +12,7 @@ from src.infra.codex_exec_client import (
     CodexExecClient,
     _build_instruction,
     _parse_jsonl,
+    check_codex_cli,
 )
 from src.infra.llm_client import LLMError, LLMTimeoutError
 
@@ -58,6 +59,52 @@ def test_default_command_does_not_pin_a_model():
     assert "--ignore-rules" in command
     assert 'web_search="disabled"' in command
     assert command[-1] == "-"
+
+
+@pytest.mark.asyncio
+async def test_check_codex_cli_reports_chatgpt_login():
+    with patch(
+        "src.infra.codex_exec_client._run_status_command",
+        new=AsyncMock(side_effect=[
+            (0, "codex-cli 1.2.3"),
+            (0, "Logged in using ChatGPT"),
+        ]),
+    ):
+        status = await check_codex_cli("codex-test")
+
+    assert status == {
+        "available": True,
+        "authenticated": True,
+        "version": "codex-cli 1.2.3",
+        "auth_method": "chatgpt",
+        "error": "",
+    }
+
+
+@pytest.mark.asyncio
+async def test_check_codex_cli_reports_missing_binary():
+    with patch(
+        "src.infra.codex_exec_client._run_status_command",
+        new=AsyncMock(return_value=(127, "")),
+    ):
+        status = await check_codex_cli("missing-codex")
+
+    assert status["available"] is False
+    assert status["authenticated"] is False
+    assert "未找到" in str(status["error"])
+
+
+@pytest.mark.asyncio
+async def test_check_codex_cli_reports_unlaunchable_binary():
+    with patch(
+        "src.infra.codex_exec_client._run_status_command",
+        new=AsyncMock(return_value=(126, "")),
+    ):
+        status = await check_codex_cli("/path/not-executable")
+
+    assert status["available"] is False
+    assert status["authenticated"] is False
+    assert "无法正常启动" in str(status["error"])
 
 
 @pytest.mark.asyncio

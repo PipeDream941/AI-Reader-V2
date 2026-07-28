@@ -22,6 +22,107 @@ logger = logging.getLogger(__name__)
 _codex_semaphore: asyncio.Semaphore | None = None
 
 
+async def _run_status_command(
+    command: list[str],
+    timeout_seconds: float,
+) -> tuple[int, str]:
+    """Run a small Codex status command without exposing credentials."""
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        return 127, ""
+    except OSError:
+        return 126, ""
+
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(),
+            timeout=timeout_seconds,
+        )
+    except asyncio.TimeoutError:
+        await CodexExecClient._stop_process(process)
+        return 124, ""
+    except asyncio.CancelledError:
+        await CodexExecClient._stop_process(process)
+        raise
+
+    output = (stdout + b"\n" + stderr).decode("utf-8", errors="replace").strip()
+    return process.returncode or 0, output
+
+
+async def check_codex_cli(
+    codex_bin: str = "codex",
+    timeout_seconds: float = 5.0,
+) -> dict[str, str | bool]:
+    """Check CLI installation and saved authentication without model usage."""
+    version_code, version_output = await _run_status_command(
+        [codex_bin, "--version"],
+        timeout_seconds,
+    )
+    if version_code == 127:
+        return {
+            "available": False,
+            "authenticated": False,
+            "version": "",
+            "auth_method": "",
+            "error": "未找到 Codex CLI，请先安装并确保 codex 位于 PATH 中",
+        }
+    if version_code != 0:
+        error = (
+            "Codex CLI 版本检查超时"
+            if version_code == 124
+            else "Codex CLI 无法正常启动"
+        )
+        return {
+            "available": False,
+            "authenticated": False,
+            "version": "",
+            "auth_method": "",
+            "error": error,
+        }
+
+    version = version_output.splitlines()[0][:120] if version_output else "codex"
+    login_code, login_output = await _run_status_command(
+        [codex_bin, "login", "status"],
+        timeout_seconds,
+    )
+    normalized = login_output.lower()
+    auth_method = ""
+    if "chatgpt" in normalized:
+        auth_method = "chatgpt"
+    elif "api key" in normalized:
+        auth_method = "api_key"
+    elif "access token" in normalized:
+        auth_method = "access_token"
+
+    if login_code == 0:
+        return {
+            "available": True,
+            "authenticated": True,
+            "version": version,
+            "auth_method": auth_method or "unknown",
+            "error": "",
+        }
+
+    error = (
+        "Codex 登录状态检查超时"
+        if login_code == 124
+        else "Codex CLI 尚未登录，请先在终端运行 codex login"
+    )
+    return {
+        "available": True,
+        "authenticated": False,
+        "version": version,
+        "auth_method": "",
+        "error": error,
+    }
+
+
 def _get_codex_semaphore() -> asyncio.Semaphore:
     """Serialize CLI calls to avoid exhausting subscription rate limits."""
     global _codex_semaphore

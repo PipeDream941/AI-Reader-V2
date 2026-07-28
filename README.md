@@ -138,6 +138,11 @@ VOT_SPATIAL_ENABLED=false \
 uv run uvicorn src.api.main:app --host 127.0.0.1 --port 8000
 ```
 
+也可以正常启动 AI Reader 后，进入“设置 → AI 引擎 → Codex 会员”查看 CLI
+版本和登录状态，再点击“切换到此引擎”。切换结果会保存，重启后继续使用
+Codex；显式设置 `LLM_PROVIDER=codex` 时仍以启动环境为准。为了避免同一个
+分析任务混用不同 Provider，存在运行或暂停中的任务时不能切换引擎。
+
 默认不固定模型，沿用当前 Codex CLI 可用的默认模型。如需明确覆盖，可设置
 `CODEX_MODEL`；如果桌面环境找不到 CLI，可将 `CODEX_BIN` 设置为可执行文件的
 绝对路径。

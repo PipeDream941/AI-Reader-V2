@@ -234,9 +234,9 @@ export function fetchSettings(): Promise<{
 }
 
 export function switchLlmMode(
-  mode: string,
+  mode: "ollama" | "openai" | "codex",
   ollamaModel?: string,
-): Promise<{ success: boolean; mode: string; error?: string }> {
+): Promise<{ success: boolean; mode?: string; error?: string }> {
   return apiFetch("/settings/llm-mode", {
     method: "POST",
     body: JSON.stringify({ mode, ollama_model: ollamaModel }),

@@ -179,6 +179,14 @@ export interface CloudConfig {
   api_key_masked: string
 }
 
+export interface CodexStatus {
+  available: boolean
+  authenticated: boolean
+  version: string
+  auth_method: string
+  error: string
+}
+
 export interface EnvironmentCheck {
   llm_provider: string
   llm_model: string
@@ -194,6 +202,8 @@ export interface EnvironmentCheck {
   // Cloud mode fields
   llm_base_url?: string
   api_available?: boolean
+  // Codex CLI mode fields
+  codex?: CodexStatus
   error?: string
 }
 
