@@ -371,8 +371,10 @@ export default function SettingsPage() {
       const res = await saveCodexConfig(codexModel, codexEffort)
       if (res.success) {
         setCodexSaveMsg("已保存")
-        // Refresh the global LLM info so the active engine banner updates
-        useLlmInfoStore.getState().fetch(true)
+        // Refresh both the page summary and the shared engine banner.
+        const latestEnv = await checkEnvironment()
+        setEnvCheck(latestEnv)
+        await useLlmInfoStore.getState().fetch(true)
       } else {
         setCodexSaveError(res.error || "保存失败")
       }
