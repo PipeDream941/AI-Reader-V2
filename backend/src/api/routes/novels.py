@@ -8,6 +8,8 @@ from src.api.schemas.novels import (
     NovelListItem,
     NovelResponse,
     ReSplitRequest,
+    UpdateNovelMetadataRequest,
+    UpdateVolumeTitleRequest,
     UploadPreviewResponse,
 )
 from src.db import novel_store
@@ -130,6 +132,53 @@ async def get_novel(novel_id: str):
     if not novel:
         raise HTTPException(status_code=404, detail="小说不存在")
     return novel
+
+
+@router.patch("/{novel_id}/metadata", response_model=NovelResponse)
+async def update_novel_metadata(
+    novel_id: str,
+    req: UpdateNovelMetadataRequest,
+):
+    """Edit display metadata without modifying the imported source text."""
+    title = req.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="书名不能为空")
+    author = req.author.strip() if req.author and req.author.strip() else None
+    novel = await novel_store.update_metadata(novel_id, title, author)
+    if not novel:
+        raise HTTPException(status_code=404, detail="小说不存在")
+    return novel
+
+
+@router.get("/{novel_id}/volumes")
+async def list_novel_volumes(novel_id: str):
+    """List editable volume titles and their chapter ranges."""
+    novel = await novel_store.get_novel(novel_id)
+    if not novel:
+        raise HTTPException(status_code=404, detail="小说不存在")
+    return {"volumes": await novel_store.list_volumes(novel_id)}
+
+
+@router.patch("/{novel_id}/volumes/{volume_num}")
+async def update_novel_volume_title(
+    novel_id: str,
+    volume_num: int,
+    req: UpdateVolumeTitleRequest,
+):
+    """Rename one numbered volume across all chapters assigned to it."""
+    if volume_num < 1:
+        raise HTTPException(status_code=400, detail="卷号必须大于 0")
+    novel = await novel_store.get_novel(novel_id)
+    if not novel:
+        raise HTTPException(status_code=404, detail="小说不存在")
+    result = await novel_store.update_volume_title(
+        novel_id,
+        volume_num,
+        req.title.strip(),
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="卷不存在")
+    return result
 
 
 @router.get("/{novel_id}/synopsis")

@@ -47,12 +47,13 @@ async def _restore_persisted_settings() -> None:
         try:
             settings: dict[str, str] = {}
             for key in ("llm_mode", "ollama_default_model", "llm_max_tokens",
-                         "cloud_base_url", "cloud_model"):
+                         "cloud_base_url", "cloud_model", "codex_model",
+                         "codex_reasoning_effort"):
                 row = await conn.execute(
                     "SELECT value FROM app_settings WHERE key=?", (key,),
                 )
                 result = await row.fetchone()
-                if result and result[0]:
+                if result and (result[0] or key == "codex_model"):
                     settings[key] = result[0]
         finally:
             await conn.close()
@@ -62,6 +63,18 @@ async def _restore_persisted_settings() -> None:
 
         if settings.get("llm_max_tokens"):
             config.update_max_tokens(int(settings["llm_max_tokens"]))
+
+        if (
+            "codex_model" in settings
+            or settings.get("codex_reasoning_effort")
+        ):
+            config.update_codex_config(
+                settings.get("codex_model", config.CODEX_MODEL),
+                settings.get(
+                    "codex_reasoning_effort",
+                    config.CODEX_REASONING_EFFORT,
+                ),
+            )
 
         mode = settings.get("llm_mode", "ollama")
         if mode == "codex":

@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import tempfile
+import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -20,6 +21,32 @@ from src.infra.openai_client import OpenAICompatibleClient
 logger = logging.getLogger(__name__)
 
 _codex_semaphore: asyncio.Semaphore | None = None
+_catalog_cache: dict[str, tuple[float, dict]] = {}
+
+CODEX_REASONING_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+_FALLBACK_MODELS = [
+    {
+        "slug": "gpt-5.6-sol",
+        "display_name": "GPT-5.6 Sol",
+        "description": "复杂、开放式和质量优先的任务",
+        "default_reasoning_level": "low",
+        "supported_reasoning_levels": list(CODEX_REASONING_EFFORTS),
+    },
+    {
+        "slug": "gpt-5.6-terra",
+        "display_name": "GPT-5.6 Terra",
+        "description": "日常任务的均衡选择",
+        "default_reasoning_level": "medium",
+        "supported_reasoning_levels": list(CODEX_REASONING_EFFORTS),
+    },
+    {
+        "slug": "gpt-5.6-luna",
+        "display_name": "GPT-5.6 Luna",
+        "description": "适合提取、分类和高吞吐量任务",
+        "default_reasoning_level": "medium",
+        "supported_reasoning_levels": list(CODEX_REASONING_EFFORTS),
+    },
+]
 
 
 async def _run_status_command(
@@ -120,6 +147,124 @@ async def check_codex_cli(
         "version": version,
         "auth_method": "",
         "error": error,
+    }
+
+
+def _parse_codex_catalog(output: str) -> list[dict]:
+    """Project the CLI's large model catalog onto safe UI fields."""
+    try:
+        payload, _end = json.JSONDecoder().raw_decode(output.lstrip())
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+    result: list[dict] = []
+    for raw in payload.get("models", []):
+        if not isinstance(raw, dict) or raw.get("visibility") != "list":
+            continue
+        # Models with an explicit upgrade target are already on a retirement
+        # path and should not be offered for new AI Reader configurations.
+        if raw.get("upgrade"):
+            continue
+        slug = str(raw.get("slug", "")).strip()
+        if not slug:
+            continue
+        efforts = [
+            str(level.get("effort", ""))
+            for level in raw.get("supported_reasoning_levels", [])
+            if isinstance(level, dict)
+            and level.get("effort") in CODEX_REASONING_EFFORTS
+        ]
+        if not efforts:
+            continue
+        result.append({
+            "slug": slug,
+            "display_name": str(raw.get("display_name") or slug),
+            "description": str(raw.get("description") or ""),
+            "default_reasoning_level": (
+                raw.get("default_reasoning_level")
+                if raw.get("default_reasoning_level") in efforts
+                else efforts[0]
+            ),
+            "supported_reasoning_levels": efforts,
+            "priority": int(raw.get("priority", 9999) or 9999),
+        })
+
+    result.sort(key=lambda item: (item["priority"], item["slug"]))
+    for item in result:
+        item.pop("priority", None)
+    return result
+
+
+async def get_codex_model_catalog(
+    codex_bin: str = "codex",
+    timeout_seconds: float = 10.0,
+    force_refresh: bool = False,
+) -> dict:
+    """Return the CLI-visible model catalog without making a model request."""
+    cached = _catalog_cache.get(codex_bin)
+    if (
+        not force_refresh
+        and cached is not None
+        and time.monotonic() - cached[0] < 300
+    ):
+        return cached[1]
+
+    code, output = await _run_status_command(
+        [codex_bin, "debug", "models"],
+        timeout_seconds,
+    )
+    models = _parse_codex_catalog(output) if code == 0 else []
+    if models:
+        result = {"models": models, "source": "cli", "warning": ""}
+    else:
+        if code == 124:
+            warning = "Codex 模型目录读取超时，当前显示内置推荐模型"
+        elif code != 0:
+            warning = "Codex 模型目录暂不可用，当前显示内置推荐模型"
+        else:
+            warning = "Codex 未返回可用模型，当前显示内置推荐模型"
+        result = {
+            "models": [dict(model) for model in _FALLBACK_MODELS],
+            "source": "fallback",
+            "warning": warning,
+        }
+
+    _catalog_cache[codex_bin] = (time.monotonic(), result)
+    return result
+
+
+async def validate_codex_profile(
+    model: str,
+    reasoning_effort: str,
+    codex_bin: str = "codex",
+) -> dict:
+    """Validate a user-selected model/effort pair against the CLI catalog."""
+    if reasoning_effort not in CODEX_REASONING_EFFORTS:
+        raise ValueError("不支持的推理强度")
+
+    catalog = await get_codex_model_catalog(codex_bin)
+    if not model:
+        # The concrete default can change with Codex releases. Restrict the
+        # unpinned profile to efforts supported by every recommended model.
+        return {
+            "model": "",
+            "display_name": "跟随 Codex 默认模型",
+            "reasoning_effort": reasoning_effort,
+        }
+
+    selected = next(
+        (item for item in catalog["models"] if item["slug"] == model),
+        None,
+    )
+    if selected is None:
+        raise ValueError("所选模型不在当前 Codex CLI 的可用目录中")
+    if reasoning_effort not in selected["supported_reasoning_levels"]:
+        raise ValueError(f"{selected['display_name']} 不支持该推理强度")
+
+    return {
+        "model": model,
+        "display_name": selected["display_name"],
+        "reasoning_effort": reasoning_effort,
     }
 
 

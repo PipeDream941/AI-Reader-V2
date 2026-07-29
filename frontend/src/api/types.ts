@@ -13,6 +13,14 @@ export interface Novel {
   last_opened: string | null
 }
 
+export interface NovelVolume {
+  volume_num: number
+  title: string
+  first_chapter: number
+  last_chapter: number
+  chapter_count: number
+}
+
 export interface Chapter {
   id: number
   novel_id: string
@@ -185,6 +193,29 @@ export interface CodexStatus {
   version: string
   auth_method: string
   error: string
+}
+
+export interface CodexModelInfo {
+  slug: string
+  display_name: string
+  description: string
+  default_reasoning_level: string
+  supported_reasoning_levels: string[]
+}
+
+export interface CodexConfigResponse {
+  model: string // "" means follow the Codex default model
+  reasoning_effort: string
+  models: CodexModelInfo[]
+  source: "cli" | "fallback"
+  warning: string
+}
+
+export interface CodexConfigSaveResponse {
+  success: boolean
+  model?: string
+  reasoning_effort?: string
+  error?: string
 }
 
 export interface EnvironmentCheck {
@@ -720,6 +751,8 @@ export interface ChatMessage {
   role: "user" | "assistant"
   content: string
   sources: number[]
+  llm_model?: string | null
+  reasoning_effort?: string | null
   created_at: string
 }
 
@@ -727,9 +760,12 @@ export interface ChatWsOutgoing {
   novel_id: string
   question: string
   conversation_id: string | null
+  model?: string
+  reasoning_effort?: string
 }
 
 export type ChatWsIncoming =
+  | { type: "profile"; model: string; reasoning_effort: string }
   | { type: "token"; content: string }
   | { type: "sources"; chapters: number[] }
   | { type: "done" }

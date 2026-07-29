@@ -23,6 +23,8 @@ interface ChatState {
   streaming: boolean
   streamingContent: string
   streamingSources: number[]
+  streamingModel: string
+  streamingReasoningEffort: string
 
   // WebSocket
   ws: WebSocket | null
@@ -43,7 +45,12 @@ interface ChatState {
 
   connectWs: (sessionId: string) => void
   disconnectWs: () => void
-  sendQuestion: (novelId: string, question: string) => void
+  sendQuestion: (
+    novelId: string,
+    question: string,
+    model?: string,
+    reasoningEffort?: string,
+  ) => void
 
   clearMessages: () => void
 
@@ -76,6 +83,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   streaming: false,
   streamingContent: "",
   streamingSources: [],
+  streamingModel: "",
+  streamingReasoningEffort: "",
   ws: null,
   wsConnected: false,
 
@@ -99,7 +108,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({ messages: [...s.messages, msg] }))
   },
 
-  clearMessages: () => set({ messages: [], activeConversationId: null, streaming: false, streamingContent: "" }),
+  clearMessages: () => set({
+    messages: [],
+    activeConversationId: null,
+    streaming: false,
+    streamingContent: "",
+    streamingModel: "",
+    streamingReasoningEffort: "",
+  }),
 
   loadConversations: async (novelId) => {
     try {
@@ -167,7 +183,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const payload = _pendingPayload
         _pendingPayload = null
         ws.send(payload)
-        set({ streaming: true, streamingContent: "", streamingSources: [] })
+        set({
+          streaming: true,
+          streamingContent: "",
+          streamingSources: [],
+          streamingModel: "",
+          streamingReasoningEffort: "",
+        })
       }
     }
 
@@ -194,6 +216,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       try {
         const msg = JSON.parse(event.data) as ChatWsIncoming
         switch (msg.type) {
+          case "profile":
+            set({
+              streamingModel: msg.model,
+              streamingReasoningEffort: msg.reasoning_effort,
+            })
+            break
           case "token":
             get()._appendStreamToken(msg.content)
             break
@@ -209,10 +237,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
               role: "assistant",
               content: state.streamingContent,
               sources: state.streamingSources,
+              llm_model: state.streamingModel || null,
+              reasoning_effort: state.streamingReasoningEffort || null,
               created_at: new Date().toISOString(),
             }
             state._finishStream(state.streamingSources)
             state._addMessage(assistantMsg)
+            set({ streamingModel: "", streamingReasoningEffort: "" })
             break
           }
           case "error": {
@@ -230,6 +261,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
             set((s) => ({
               streaming: false,
               streamingContent: "",
+              streamingModel: "",
+              streamingReasoningEffort: "",
               messages: [...s.messages, errMsg],
             }))
             break
@@ -258,7 +291,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ ws: null, wsConnected: false })
   },
 
-  sendQuestion: (novelId, question) => {
+  sendQuestion: (novelId, question, model, reasoningEffort) => {
     const { ws, activeConversationId } = get()
 
     // Add user message locally first so it always appears
@@ -275,6 +308,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       novel_id: novelId,
       question,
       conversation_id: activeConversationId,
+      ...(model !== undefined ? { model } : {}),
+      ...(reasoningEffort !== undefined
+        ? { reasoning_effort: reasoningEffort }
+        : {}),
     })
 
     if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -285,6 +322,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         streaming: true,
         streamingContent: "",
         streamingSources: [],
+        streamingModel: "",
+        streamingReasoningEffort: "",
       }))
       // Force reconnect
       _reconnectAttempt = 0
@@ -297,6 +336,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       streaming: true,
       streamingContent: "",
       streamingSources: [],
+      streamingModel: "",
+      streamingReasoningEffort: "",
     }))
 
     ws.send(payload)
@@ -305,7 +346,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   _appendStreamToken: (token) =>
     set((s) => ({ streamingContent: s.streamingContent + token })),
 
-  _finishStream: (_sources) =>
+  _finishStream: () =>
     set({ streaming: false }),
 
   _addMessage: (msg) =>

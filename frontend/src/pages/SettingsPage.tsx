@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { apiFetch, checkEnvironment, startOllama, fetchModelRecommendations, pullOllamaModel, setDefaultModel, fetchCloudProviders, fetchCloudConfig, saveCloudConfig, validateCloudApi, fetchNovels, exportNovelUrl, previewImport, confirmDataImport, fetchSettings, switchLlmMode, fetchRunningTasks, restoreDefaults, fetchBudget, setBudget, fetchAnalysisRecords, fetchCostDetail, costDetailCsvUrl, downloadBackupExport, previewBackupImport, confirmBackupImport, runModelBenchmark, fetchBenchmarkHistory, deleteBenchmarkRecord } from "@/api/client"
-import type { BenchmarkResult, BenchmarkRecord, EnvironmentCheck, OllamaModel, ModelRecommendation, CloudProvider, CloudConfig, Novel, ImportPreview, AnalysisRecord, CostDetailResponse, BackupPreview, BackupImportResult } from "@/api/types"
+import { apiFetch, checkEnvironment, startOllama, fetchModelRecommendations, pullOllamaModel, setDefaultModel, fetchCloudProviders, fetchCloudConfig, saveCloudConfig, validateCloudApi, fetchCodexConfig, saveCodexConfig, fetchNovels, fetchNovelVolumes, updateNovelMetadata, updateNovelVolumeTitle, exportNovelUrl, previewImport, confirmDataImport, fetchSettings, switchLlmMode, fetchRunningTasks, restoreDefaults, fetchBudget, setBudget, fetchAnalysisRecords, fetchCostDetail, costDetailCsvUrl, downloadBackupExport, previewBackupImport, confirmBackupImport, runModelBenchmark, fetchBenchmarkHistory, deleteBenchmarkRecord } from "@/api/client"
+import type { BenchmarkResult, BenchmarkRecord, EnvironmentCheck, OllamaModel, ModelRecommendation, CloudProvider, CloudConfig, CodexConfigResponse, Novel, NovelVolume, ImportPreview, AnalysisRecord, CostDetailResponse, BackupPreview, BackupImportResult } from "@/api/types"
 import { useReadingSettingsStore, FONT_SIZE_MAP, LINE_HEIGHT_MAP } from "@/stores/readingSettingsStore"
 import { novelPath } from "@/lib/novelPaths"
 import { useLlmInfoStore } from "@/stores/llmInfoStore"
 import { useThemeStore } from "@/stores/themeStore"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { adjustReasoningEffort, isQuotaHeavyLevel, reasoningLevelLabel, supportedReasoningLevels } from "@/lib/codexProfile"
 import { isTauri } from "@/api/sidecarBridge"
 
 function openExternal(url: string) {
@@ -54,6 +55,14 @@ export default function SettingsPage() {
   const [envCheck, setEnvCheck] = useState<EnvironmentCheck | null>(null)
   const [envLoading, setEnvLoading] = useState(true)
   const [novels, setNovels] = useState<Novel[]>([])
+  const [metadataTarget, setMetadataTarget] = useState<Novel | null>(null)
+  const [metadataTitle, setMetadataTitle] = useState("")
+  const [metadataAuthor, setMetadataAuthor] = useState("")
+  const [metadataVolumes, setMetadataVolumes] = useState<NovelVolume[]>([])
+  const [originalVolumeTitles, setOriginalVolumeTitles] = useState<Record<number, string>>({})
+  const [metadataLoading, setMetadataLoading] = useState(false)
+  const [metadataSaving, setMetadataSaving] = useState(false)
+  const [metadataError, setMetadataError] = useState("")
 
   const { fontSize, lineHeight, setFontSize, setLineHeight } = useReadingSettingsStore()
   const { theme, setTheme } = useThemeStore()
@@ -146,6 +155,17 @@ export default function SettingsPage() {
   const [selectedOllamaModel, setSelectedOllamaModel] = useState("")
   // Switch confirmation dialog
   const [showSwitchDialog, setShowSwitchDialog] = useState(false)
+
+  // Codex analysis profile (model + reasoning effort)
+  const [codexConfig, setCodexConfig] = useState<CodexConfigResponse | null>(null)
+  const [codexConfigLoading, setCodexConfigLoading] = useState(true)
+  const [codexCatalogRefreshing, setCodexCatalogRefreshing] = useState(false)
+  const [codexConfigError, setCodexConfigError] = useState<string | null>(null)
+  const [codexModel, setCodexModel] = useState("")
+  const [codexEffort, setCodexEffort] = useState("low")
+  const [codexSaving, setCodexSaving] = useState(false)
+  const [codexSaveMsg, setCodexSaveMsg] = useState<string | null>(null)
+  const [codexSaveError, setCodexSaveError] = useState<string | null>(null)
 
   // Budget state
   const [budgetAmount, setBudgetAmount] = useState(50)
@@ -314,6 +334,54 @@ export default function SettingsPage() {
       setCodexLoginCopied(false)
     }
   }, [])
+
+  // Load the Codex profile + model catalog (refresh=true re-reads the CLI catalog)
+  const loadCodexConfig = useCallback(async (refresh = false) => {
+    if (refresh) setCodexCatalogRefreshing(true)
+    else setCodexConfigLoading(true)
+    setCodexConfigError(null)
+    try {
+      const cfg = await fetchCodexConfig(refresh)
+      setCodexConfig(cfg)
+      setCodexModel(cfg.model)
+      setCodexEffort(adjustReasoningEffort(cfg.models, cfg.model, cfg.reasoning_effort))
+    } catch (err) {
+      setCodexConfigError(err instanceof Error ? err.message : "加载 Codex 配置失败")
+    } finally {
+      setCodexConfigLoading(false)
+      setCodexCatalogRefreshing(false)
+    }
+  }, [])
+
+  useEffect(() => { loadCodexConfig() }, [loadCodexConfig])
+
+  const handleCodexModelChange = useCallback((slug: string) => {
+    setCodexModel(slug)
+    // Adjust an effort the newly selected model does not support
+    setCodexEffort((prev) => adjustReasoningEffort(codexConfig?.models ?? [], slug, prev))
+    setCodexSaveMsg(null)
+    setCodexSaveError(null)
+  }, [codexConfig])
+
+  const handleSaveCodex = useCallback(async () => {
+    setCodexSaving(true)
+    setCodexSaveMsg(null)
+    setCodexSaveError(null)
+    try {
+      const res = await saveCodexConfig(codexModel, codexEffort)
+      if (res.success) {
+        setCodexSaveMsg("已保存")
+        // Refresh the global LLM info so the active engine banner updates
+        useLlmInfoStore.getState().fetch(true)
+      } else {
+        setCodexSaveError(res.error || "保存失败")
+      }
+    } catch (err) {
+      setCodexSaveError(err instanceof Error ? err.message : "保存失败")
+    } finally {
+      setCodexSaving(false)
+    }
+  }, [codexModel, codexEffort])
 
   // Confirmed switch — actually call the backend
   const handleConfirmSwitch = useCallback(async () => {
@@ -485,6 +553,70 @@ export default function SettingsPage() {
     setImportError(null)
     if (importFileRef.current) importFileRef.current.value = ""
   }, [])
+
+  const openMetadataEditor = useCallback(async (novel: Novel) => {
+    setMetadataTarget(novel)
+    setMetadataTitle(novel.title)
+    setMetadataAuthor(novel.author ?? "")
+    setMetadataVolumes([])
+    setOriginalVolumeTitles({})
+    setMetadataError("")
+    setMetadataLoading(true)
+    try {
+      const data = await fetchNovelVolumes(novel.id)
+      setMetadataVolumes(data.volumes)
+      setOriginalVolumeTitles(
+        Object.fromEntries(data.volumes.map((volume) => [volume.volume_num, volume.title])),
+      )
+    } catch (error) {
+      setMetadataError(error instanceof Error ? error.message : "卷信息加载失败")
+    } finally {
+      setMetadataLoading(false)
+    }
+  }, [])
+
+  const closeMetadataEditor = useCallback(() => {
+    if (metadataSaving) return
+    setMetadataTarget(null)
+    setMetadataError("")
+  }, [metadataSaving])
+
+  const saveMetadata = useCallback(async () => {
+    if (!metadataTarget || !metadataTitle.trim()) return
+    setMetadataSaving(true)
+    setMetadataError("")
+    try {
+      await updateNovelMetadata(metadataTarget.id, {
+        title: metadataTitle.trim(),
+        author: metadataAuthor.trim() || null,
+      })
+      const changedVolumes = metadataVolumes.filter(
+        (volume) => originalVolumeTitles[volume.volume_num] !== volume.title.trim(),
+      )
+      await Promise.all(
+        changedVolumes.map((volume) =>
+          updateNovelVolumeTitle(
+            metadataTarget.id,
+            volume.volume_num,
+            volume.title.trim(),
+          ),
+        ),
+      )
+      const data = await fetchNovels()
+      setNovels(data.novels)
+      setMetadataTarget(null)
+    } catch (error) {
+      setMetadataError(error instanceof Error ? error.message : "保存失败")
+    } finally {
+      setMetadataSaving(false)
+    }
+  }, [
+    metadataAuthor,
+    metadataTarget,
+    metadataTitle,
+    metadataVolumes,
+    originalVolumeTitles,
+  ])
 
   return (
     <div className="flex h-screen flex-col">
@@ -1331,6 +1463,114 @@ export default function SettingsPage() {
                       </div>
                     )}
 
+                    {/* Analysis profile: model + reasoning effort */}
+                    <div className="border-t pt-3 mt-3 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm">分析配置</span>
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={() => loadCodexConfig(true)}
+                          disabled={codexConfigLoading || codexCatalogRefreshing}
+                        >
+                          {codexCatalogRefreshing ? "刷新中..." : "刷新模型目录"}
+                        </Button>
+                      </div>
+
+                      {codexConfigLoading ? (
+                        <p className="text-xs text-muted-foreground">加载中...</p>
+                      ) : codexConfig ? (() => {
+                        const codexCliReady = envCheck?.codex?.available === true
+                          && envCheck?.codex?.authenticated === true
+                        const selectedModel = codexConfig.models.find((m) => m.slug === codexModel)
+                        const levels = supportedReasoningLevels(codexConfig.models, codexModel)
+                        return (
+                          <>
+                            <div>
+                              <label htmlFor="codex-model" className="text-sm block mb-1.5">模型</label>
+                              <select
+                                id="codex-model"
+                                className="w-full border rounded px-2 py-1.5 text-sm bg-background"
+                                value={codexModel}
+                                onChange={(e) => handleCodexModelChange(e.target.value)}
+                              >
+                                <option value="">跟随 Codex 默认模型</option>
+                                {codexConfig.models.map((m) => (
+                                  <option key={m.slug} value={m.slug}>{m.display_name}</option>
+                                ))}
+                              </select>
+                              {selectedModel?.description && (
+                                <p className="text-[10px] text-muted-foreground mt-1">
+                                  {selectedModel.description}
+                                </p>
+                              )}
+                            </div>
+
+                            <div>
+                              <label htmlFor="codex-effort" className="text-sm block mb-1.5">推理强度</label>
+                              <select
+                                id="codex-effort"
+                                className="w-full border rounded px-2 py-1.5 text-sm bg-background"
+                                value={codexEffort}
+                                onChange={(e) => {
+                                  setCodexEffort(e.target.value)
+                                  setCodexSaveMsg(null)
+                                  setCodexSaveError(null)
+                                }}
+                              >
+                                {levels.map((lv) => (
+                                  <option key={lv} value={lv}>
+                                    {reasoningLevelLabel(lv)}（{lv}）
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {isQuotaHeavyLevel(codexEffort) && (
+                              <p className="text-xs text-amber-600">
+                                高推理强度会消耗更多会员额度，且单章响应时间明显增加。
+                              </p>
+                            )}
+
+                            <p className="text-[10px] text-muted-foreground">
+                              推荐 GPT-5.6 Luna + 低：适合大批量结构化小说信息抽取，速度快、
+                              会员额度消耗低（使用订阅额度，非按量计费）。
+                            </p>
+
+                            {codexConfig.warning && (
+                              <p className="text-xs text-amber-600">{codexConfig.warning}</p>
+                            )}
+                            {codexConfigError && (
+                              <p className="text-xs text-red-500">{codexConfigError}</p>
+                            )}
+
+                            <div className="flex items-center gap-3">
+                              <Button
+                                size="xs"
+                                onClick={handleSaveCodex}
+                                disabled={codexSaving || !codexCliReady}
+                              >
+                                {codexSaving ? "保存中..." : "保存配置"}
+                              </Button>
+                              {codexSaveMsg && (
+                                <span className="text-xs text-green-600">{codexSaveMsg}</span>
+                              )}
+                              {codexSaveError && (
+                                <span className="text-xs text-red-500">{codexSaveError}</span>
+                              )}
+                            </div>
+                            {!codexCliReady && (
+                              <p className="text-[10px] text-muted-foreground">
+                                安装并登录 Codex CLI 后即可保存配置；保存不要求 Codex 是当前引擎。
+                              </p>
+                            )}
+                          </>
+                        )
+                      })() : (
+                        <p className="text-xs text-red-500">{codexConfigError ?? "加载 Codex 配置失败"}</p>
+                      )}
+                    </div>
+
                     {envCheck?.llm_provider !== "codex" && (
                       <div className="border-t pt-3 mt-3">
                         <Button
@@ -1654,6 +1894,13 @@ export default function SettingsPage() {
                         </span>
                       </div>
                       <div className="flex gap-1.5 flex-shrink-0">
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          onClick={() => openMetadataEditor(novel)}
+                        >
+                          编辑信息
+                        </Button>
                         <Button
                           variant="outline"
                           size="xs"
@@ -2045,6 +2292,117 @@ export default function SettingsPage() {
           </section>
         </div>
       </div>
+
+      {metadataTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="metadata-editor-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeMetadataEditor()
+          }}
+        >
+          <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border bg-background shadow-xl">
+            <div className="border-b px-5 py-4">
+              <h2 id="metadata-editor-title" className="font-medium">
+                编辑小说信息
+              </h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                仅修改本地显示元数据，不修改导入文件、章节正文或分章结果。
+              </p>
+            </div>
+
+            <div className="space-y-4 overflow-y-auto px-5 py-4">
+              <label className="block space-y-1.5">
+                <span className="text-sm">书名</span>
+                <input
+                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                  value={metadataTitle}
+                  onChange={(event) => setMetadataTitle(event.target.value)}
+                  disabled={metadataSaving}
+                />
+              </label>
+
+              <label className="block space-y-1.5">
+                <span className="text-sm">作者</span>
+                <input
+                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                  value={metadataAuthor}
+                  placeholder="可留空"
+                  onChange={(event) => setMetadataAuthor(event.target.value)}
+                  disabled={metadataSaving}
+                />
+              </label>
+
+              <div>
+                <div className="mb-2">
+                  <span className="text-sm">卷名</span>
+                  <span className="ml-2 text-[10px] text-muted-foreground">
+                    清空可移除卷名；不会改变章节所属卷
+                  </span>
+                </div>
+                {metadataLoading ? (
+                  <p className="text-sm text-muted-foreground">正在加载卷信息...</p>
+                ) : metadataVolumes.length === 0 ? (
+                  <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                    当前小说没有可编辑的卷结构。
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {metadataVolumes.map((volume, index) => (
+                      <label
+                        key={volume.volume_num}
+                        className="grid grid-cols-[8rem_1fr] items-center gap-3"
+                      >
+                        <span className="text-xs text-muted-foreground">
+                          第{volume.volume_num}卷 · 第{volume.first_chapter}–{volume.last_chapter}章
+                        </span>
+                        <input
+                          aria-label={`第${volume.volume_num}卷卷名`}
+                          className="h-8 rounded-md border bg-background px-3 text-sm"
+                          value={volume.title}
+                          disabled={metadataSaving}
+                          onChange={(event) => {
+                            const title = event.target.value
+                            setMetadataVolumes((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, title } : item,
+                              ),
+                            )
+                          }}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {metadataError && (
+                <p className="text-xs text-red-500">{metadataError}</p>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 border-t px-5 py-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={closeMetadataEditor}
+                disabled={metadataSaving}
+              >
+                取消
+              </Button>
+              <Button
+                size="sm"
+                onClick={saveMetadata}
+                disabled={metadataSaving || metadataLoading || !metadataTitle.trim()}
+              >
+                {metadataSaving ? "保存中..." : "保存"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

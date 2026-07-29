@@ -11,8 +11,11 @@ import pytest
 from src.infra.codex_exec_client import (
     CodexExecClient,
     _build_instruction,
+    _parse_codex_catalog,
     _parse_jsonl,
     check_codex_cli,
+    get_codex_model_catalog,
+    validate_codex_profile,
 )
 from src.infra.llm_client import LLMError, LLMTimeoutError
 
@@ -59,6 +62,107 @@ def test_default_command_does_not_pin_a_model():
     assert "--ignore-rules" in command
     assert 'web_search="disabled"' in command
     assert command[-1] == "-"
+
+
+def test_parse_codex_catalog_filters_hidden_retiring_and_ultra():
+    output = json.dumps({
+        "models": [
+            {
+                "slug": "gpt-5.6-sol",
+                "display_name": "GPT-5.6-Sol",
+                "description": "frontier",
+                "visibility": "list",
+                "priority": 1,
+                "default_reasoning_level": "low",
+                "supported_reasoning_levels": [
+                    {"effort": "low"},
+                    {"effort": "max"},
+                    {"effort": "ultra"},
+                ],
+                "upgrade": None,
+            },
+            {
+                "slug": "retiring",
+                "visibility": "list",
+                "supported_reasoning_levels": [{"effort": "low"}],
+                "upgrade": {"model": "gpt-5.6-sol"},
+            },
+            {
+                "slug": "hidden",
+                "visibility": "hide",
+                "supported_reasoning_levels": [{"effort": "low"}],
+            },
+        ],
+    })
+
+    models = _parse_codex_catalog(output)
+
+    assert models == [{
+        "slug": "gpt-5.6-sol",
+        "display_name": "GPT-5.6-Sol",
+        "description": "frontier",
+        "default_reasoning_level": "low",
+        "supported_reasoning_levels": ["low", "max"],
+    }]
+
+
+@pytest.mark.asyncio
+async def test_catalog_uses_cli_visible_models():
+    output = json.dumps({
+        "models": [{
+            "slug": "gpt-test",
+            "display_name": "GPT Test",
+            "description": "",
+            "visibility": "list",
+            "priority": 1,
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+                {"effort": "low"},
+                {"effort": "medium"},
+            ],
+            "upgrade": None,
+        }],
+    })
+    with patch(
+        "src.infra.codex_exec_client._run_status_command",
+        new=AsyncMock(return_value=(0, output)),
+    ):
+        catalog = await get_codex_model_catalog(
+            "codex-catalog-test",
+            force_refresh=True,
+        )
+
+    assert catalog["source"] == "cli"
+    assert catalog["models"][0]["slug"] == "gpt-test"
+
+
+@pytest.mark.asyncio
+async def test_validate_codex_profile_rejects_unsupported_effort():
+    output = json.dumps({
+        "models": [{
+            "slug": "gpt-test",
+            "display_name": "GPT Test",
+            "visibility": "list",
+            "priority": 1,
+            "default_reasoning_level": "low",
+            "supported_reasoning_levels": [{"effort": "low"}],
+            "upgrade": None,
+        }],
+    })
+    with patch(
+        "src.infra.codex_exec_client._run_status_command",
+        new=AsyncMock(return_value=(0, output)),
+    ):
+        await get_codex_model_catalog(
+            "codex-validation-test",
+            force_refresh=True,
+        )
+        with pytest.raises(ValueError, match="不支持"):
+            await validate_codex_profile(
+                "gpt-test",
+                "high",
+                "codex-validation-test",
+            )
 
 
 @pytest.mark.asyncio

@@ -130,6 +130,17 @@ def switch_to_codex() -> None:
     _reset_llm_client()
 
 
+def update_codex_config(model: str, reasoning_effort: str) -> None:
+    """Update the Codex runtime profile without changing the active provider."""
+    global CODEX_MODEL, CODEX_REASONING_EFFORT  # noqa: PLW0603
+
+    CODEX_MODEL = model
+    CODEX_REASONING_EFFORT = reasoning_effort
+
+    if LLM_PROVIDER == "codex":
+        _reset_llm_client()
+
+
 def _reset_llm_client() -> None:
     """Reset cached LLM client and notify AnalysisService singleton."""
     from src.infra import llm_client

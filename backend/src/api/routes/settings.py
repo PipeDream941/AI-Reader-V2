@@ -223,6 +223,11 @@ class SwitchModeRequest(BaseModel):
     ollama_model: str | None = None
 
 
+class CodexConfigRequest(BaseModel):
+    model: str = ""
+    reasoning_effort: str = "low"
+
+
 class BudgetRequest(BaseModel):
     monthly_budget_cny: float
 
@@ -241,6 +246,8 @@ async def get_settings():
             "recommended_model": REQUIRED_MODEL,
             "context_window": config.CONTEXT_WINDOW_SIZE,
             "llm_quality_review": config.LLM_QUALITY_REVIEW,
+            "codex_model": config.CODEX_MODEL,
+            "codex_reasoning_effort": config.CODEX_REASONING_EFFORT,
         }
     }
 
@@ -266,6 +273,87 @@ async def health_check():
     merged["llm_model"] = config.get_model_name()
     merged["llm_base_url"] = config.LLM_BASE_URL
     return merged
+
+
+@router.get("/codex/config")
+async def get_codex_config(refresh: bool = False):
+    """Return the selected Codex profile and the CLI-visible model catalog."""
+    from src.infra import config
+    from src.infra.codex_exec_client import get_codex_model_catalog
+
+    catalog = await get_codex_model_catalog(
+        config.CODEX_BIN,
+        force_refresh=refresh,
+    )
+    return {
+        "model": config.CODEX_MODEL,
+        "reasoning_effort": config.CODEX_REASONING_EFFORT,
+        **catalog,
+    }
+
+
+@router.post("/codex/config")
+async def save_codex_config(req: CodexConfigRequest):
+    """Persist and hot-apply a validated Codex model/reasoning profile."""
+    from src.infra import config
+    from src.infra.codex_exec_client import (
+        check_codex_cli,
+        validate_codex_profile,
+    )
+
+    open_task_count = await _count_open_analysis_tasks()
+    if open_task_count:
+        return {
+            "success": False,
+            "error": (
+                f"当前有 {open_task_count} 个运行或暂停中的分析任务。"
+                "请先完成或取消任务，再修改 Codex 配置。"
+            ),
+        }
+
+    status = await check_codex_cli(config.CODEX_BIN)
+    if not status["available"] or not status["authenticated"]:
+        return {"success": False, "error": status["error"]}
+
+    try:
+        profile = await validate_codex_profile(
+            req.model.strip(),
+            req.reasoning_effort.strip(),
+            config.CODEX_BIN,
+        )
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
+
+    from src.db.sqlite_db import get_connection
+
+    conn = await get_connection()
+    try:
+        for key, value in [
+            ("codex_model", profile["model"]),
+            ("codex_reasoning_effort", profile["reasoning_effort"]),
+        ]:
+            await conn.execute(
+                """INSERT INTO app_settings (key, value, updated_at)
+                   VALUES (?, ?, datetime('now'))
+                   ON CONFLICT(key) DO UPDATE SET
+                     value = excluded.value, updated_at = excluded.updated_at""",
+                (key, value),
+            )
+        await conn.commit()
+    finally:
+        await conn.close()
+
+    config.update_codex_config(
+        profile["model"],
+        profile["reasoning_effort"],
+    )
+
+    if config.LLM_PROVIDER == "codex":
+        from src.infra.context_budget import detect_and_update_context_window
+
+        await detect_and_update_context_window()
+
+    return {"success": True, **profile}
 
 
 @router.post("/ollama/start")
@@ -750,7 +838,8 @@ async def restore_defaults():
     try:
         await conn.execute(
             "DELETE FROM app_settings WHERE key IN "
-            "('llm_mode', 'ollama_default_model', 'llm_max_tokens')",
+            "('llm_mode', 'ollama_default_model', 'llm_max_tokens', "
+            "'codex_model', 'codex_reasoning_effort')",
         )
         await conn.commit()
     finally:

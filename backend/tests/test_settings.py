@@ -7,6 +7,7 @@ import pytest
 from httpx import ConnectError, Request
 
 from src.api.routes.settings import (
+    CodexConfigRequest,
     SwitchModeRequest,
     ValidateCloudRequest,
     _check_ollama,
@@ -15,6 +16,7 @@ from src.api.routes.settings import (
     get_hardware,
     get_model_recommendations,
     restore_defaults,
+    save_codex_config,
     start_ollama,
     switch_llm_mode,
     validate_cloud_api,
@@ -441,6 +443,63 @@ async def test_switch_to_codex_after_successful_preflight():
 
     assert result == {"success": True, "mode": "codex"}
     mock_switch.assert_called_once_with()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_save_codex_config_validates_persists_and_hot_applies():
+    req = CodexConfigRequest(
+        model="gpt-5.6-luna",
+        reasoning_effort="low",
+    )
+    status = {
+        "available": True,
+        "authenticated": True,
+        "version": "codex-cli 1.2.3",
+        "auth_method": "chatgpt",
+        "error": "",
+    }
+    profile = {
+        "model": "gpt-5.6-luna",
+        "display_name": "GPT-5.6 Luna",
+        "reasoning_effort": "low",
+    }
+
+    with patch(
+        "src.api.routes.settings._count_open_analysis_tasks",
+        new=AsyncMock(return_value=0),
+    ):
+        with patch(
+            "src.infra.codex_exec_client.check_codex_cli",
+            new=AsyncMock(return_value=status),
+        ):
+            with patch(
+                "src.infra.codex_exec_client.validate_codex_profile",
+                new=AsyncMock(return_value=profile),
+            ):
+                with patch(
+                    "src.db.sqlite_db.get_connection",
+                    _mock_get_connection(),
+                ):
+                    with patch(
+                        "src.infra.config.update_codex_config",
+                    ) as update:
+                        result = await save_codex_config(req)
+
+    assert result == {"success": True, **profile}
+    update.assert_called_once_with("gpt-5.6-luna", "low")
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_save_codex_config_rejects_open_analysis_tasks():
+    req = CodexConfigRequest(model="gpt-5.6-sol", reasoning_effort="high")
+    with patch(
+        "src.api.routes.settings._count_open_analysis_tasks",
+        new=AsyncMock(return_value=1),
+    ):
+        result = await save_codex_config(req)
+
+    assert result["success"] is False
+    assert "1 个运行或暂停中" in result["error"]
 
 
 @pytest.mark.asyncio(loop_scope="session")
