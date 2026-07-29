@@ -16,7 +16,7 @@ import {
   deleteBookmark,
   fetchConceptDetail,
 } from "@/api/client"
-import type { Bookmark, Chapter, ChapterEntity, EntityType, Novel, Scene } from "@/api/types"
+import type { Bookmark, ChapterEntity, EntityType, Novel, Scene } from "@/api/types"
 import { useReadingStore } from "@/stores/readingStore"
 import { useEntityCardStore } from "@/stores/entityCardStore"
 import {
@@ -38,6 +38,7 @@ import { highlightText } from "@/lib/entityHighlight"
 import { useTourStore, TOUR_STEPS, TOTAL_TOUR_STEPS } from "@/stores/tourStore"
 import { recordTabVisit } from "@/lib/tabTracking"
 import { novelPath } from "@/lib/novelPaths"
+import { chapterGroupKey, groupChapters } from "@/lib/chapterGrouping"
 
 // ── Entity type colors for filter chips ──────────
 const ENTITY_TYPE_LABELS: { type: string; label: string; color: string }[] = [
@@ -60,33 +61,6 @@ function StatusDot({ status }: { status: string }) {
           ? "bg-red-500"
           : "bg-gray-300 dark:bg-gray-600"
   return <span className={cn("inline-block size-2 shrink-0 rounded-full", color)} />
-}
-
-// ── Volume/Chapter grouping ──────────────────────
-
-interface VolumeGroup {
-  volumeNum: number | null
-  volumeTitle: string | null
-  chapters: Chapter[]
-}
-
-function groupByVolume(chapters: Chapter[]): VolumeGroup[] {
-  const groups: VolumeGroup[] = []
-  let current: VolumeGroup | null = null
-
-  for (const ch of chapters) {
-    const vNum = ch.volume_num ?? null
-    if (!current || current.volumeNum !== vNum) {
-      current = {
-        volumeNum: vNum,
-        volumeTitle: ch.volume_title ?? null,
-        chapters: [],
-      }
-      groups.push(current)
-    }
-    current.chapters.push(ch)
-  }
-  return groups
 }
 
 // ── TOC Sidebar ──────────────────────────────────
@@ -118,11 +92,11 @@ function TocSidebar({
     )
   }, [chapters, search])
 
-  const groups = useMemo(() => groupByVolume(filtered), [filtered])
-  const hasVolumes = groups.some((g) => g.volumeNum !== null)
+  const groups = useMemo(() => groupChapters(filtered), [filtered])
+  const hasVolumes = groups.some((g) => g.kind === "volume")
 
   // Track expanded volumes
-  const [expandedVolumes, setExpandedVolumes] = useState<Set<number | null>>(
+  const [expandedVolumes, setExpandedVolumes] = useState<Set<string>>(
     new Set(),
   )
   const [showBookmarks, setShowBookmarks] = useState(false)
@@ -130,16 +104,18 @@ function TocSidebar({
   // Auto-expand volume of current chapter
   useEffect(() => {
     const ch = chapters.find((c) => c.chapter_num === currentChapterNum)
-    if (ch?.volume_num != null) {
-      setExpandedVolumes((prev) => new Set([...prev, ch.volume_num]))
+    if (ch) {
+      // The current chapter is external navigation state; keep its TOC group visible.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setExpandedVolumes((prev) => new Set([...prev, chapterGroupKey(ch)]))
     }
   }, [currentChapterNum, chapters])
 
-  const toggleVolume = (vNum: number | null) => {
+  const toggleVolume = (groupKey: string) => {
     setExpandedVolumes((prev) => {
       const next = new Set(prev)
-      if (next.has(vNum)) next.delete(vNum)
-      else next.add(vNum)
+      if (next.has(groupKey)) next.delete(groupKey)
+      else next.add(groupKey)
       return next
     })
   }
@@ -215,24 +191,23 @@ function TocSidebar({
         {groups.map((group, gi) => {
           const isExpanded =
             !hasVolumes ||
-            group.volumeNum === null ||
-            expandedVolumes.has(group.volumeNum)
+            expandedVolumes.has(group.key)
 
           const analyzedCount = group.chapters.filter(
             (c) => c.analysis_status === "completed",
           ).length
 
           return (
-            <div key={gi}>
+            <div key={`${group.key}-${gi}`}>
               {/* Volume header */}
-              {hasVolumes && group.volumeNum !== null && (
+              {hasVolumes && (
                 <button
                   className="text-muted-foreground flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs font-medium hover:bg-accent"
-                  onClick={() => toggleVolume(group.volumeNum)}
+                  onClick={() => toggleVolume(group.key)}
                 >
                   <ChevronIcon expanded={isExpanded} />
                   <span className="flex-1 truncate">
-                    {group.volumeTitle || `第${group.volumeNum}卷`}
+                    {group.title}
                   </span>
                   <span className="text-muted-foreground/60 text-[10px]">
                     {analyzedCount}/{group.chapters.length}
@@ -250,7 +225,7 @@ function TocSidebar({
                       ref={isCurrent ? currentRef : undefined}
                       className={cn(
                         "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent",
-                        hasVolumes && group.volumeNum !== null && "pl-6",
+                        hasVolumes && "pl-6",
                         isCurrent && "bg-accent font-medium",
                       )}
                       onClick={() => onSelect(ch.chapter_num)}
