@@ -14,8 +14,9 @@ import {
   fetchBookmarks,
   addBookmark,
   deleteBookmark,
+  fetchConceptDetail,
 } from "@/api/client"
-import type { Bookmark, Chapter, ChapterEntity, EntityType, Novel, Scene } from "@/api/types"
+import type { Bookmark, ChapterEntity, EntityType, Novel, Scene } from "@/api/types"
 import { useReadingStore } from "@/stores/readingStore"
 import { useEntityCardStore } from "@/stores/entityCardStore"
 import {
@@ -24,6 +25,7 @@ import {
   LINE_HEIGHT_MAP,
   type FontSize,
   type LineHeight,
+  type ParagraphIndent,
 } from "@/stores/readingSettingsStore"
 import { EntityCardDrawer } from "@/components/entity-cards/EntityCardDrawer"
 import { ScenePanel, SCENE_BORDER_COLORS } from "@/components/shared/ScenePanel"
@@ -36,6 +38,7 @@ import { highlightText } from "@/lib/entityHighlight"
 import { useTourStore, TOUR_STEPS, TOTAL_TOUR_STEPS } from "@/stores/tourStore"
 import { recordTabVisit } from "@/lib/tabTracking"
 import { novelPath } from "@/lib/novelPaths"
+import { chapterGroupKey, groupChapters } from "@/lib/chapterGrouping"
 
 // ── Entity type colors for filter chips ──────────
 const ENTITY_TYPE_LABELS: { type: string; label: string; color: string }[] = [
@@ -58,33 +61,6 @@ function StatusDot({ status }: { status: string }) {
           ? "bg-red-500"
           : "bg-gray-300 dark:bg-gray-600"
   return <span className={cn("inline-block size-2 shrink-0 rounded-full", color)} />
-}
-
-// ── Volume/Chapter grouping ──────────────────────
-
-interface VolumeGroup {
-  volumeNum: number | null
-  volumeTitle: string | null
-  chapters: Chapter[]
-}
-
-function groupByVolume(chapters: Chapter[]): VolumeGroup[] {
-  const groups: VolumeGroup[] = []
-  let current: VolumeGroup | null = null
-
-  for (const ch of chapters) {
-    const vNum = ch.volume_num ?? null
-    if (!current || current.volumeNum !== vNum) {
-      current = {
-        volumeNum: vNum,
-        volumeTitle: ch.volume_title ?? null,
-        chapters: [],
-      }
-      groups.push(current)
-    }
-    current.chapters.push(ch)
-  }
-  return groups
 }
 
 // ── TOC Sidebar ──────────────────────────────────
@@ -116,11 +92,11 @@ function TocSidebar({
     )
   }, [chapters, search])
 
-  const groups = useMemo(() => groupByVolume(filtered), [filtered])
-  const hasVolumes = groups.some((g) => g.volumeNum !== null)
+  const groups = useMemo(() => groupChapters(filtered), [filtered])
+  const hasVolumes = groups.some((g) => g.kind === "volume")
 
   // Track expanded volumes
-  const [expandedVolumes, setExpandedVolumes] = useState<Set<number | null>>(
+  const [expandedVolumes, setExpandedVolumes] = useState<Set<string>>(
     new Set(),
   )
   const [showBookmarks, setShowBookmarks] = useState(false)
@@ -128,16 +104,18 @@ function TocSidebar({
   // Auto-expand volume of current chapter
   useEffect(() => {
     const ch = chapters.find((c) => c.chapter_num === currentChapterNum)
-    if (ch?.volume_num != null) {
-      setExpandedVolumes((prev) => new Set([...prev, ch.volume_num]))
+    if (ch) {
+      // The current chapter is external navigation state; keep its TOC group visible.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setExpandedVolumes((prev) => new Set([...prev, chapterGroupKey(ch)]))
     }
   }, [currentChapterNum, chapters])
 
-  const toggleVolume = (vNum: number | null) => {
+  const toggleVolume = (groupKey: string) => {
     setExpandedVolumes((prev) => {
       const next = new Set(prev)
-      if (next.has(vNum)) next.delete(vNum)
-      else next.add(vNum)
+      if (next.has(groupKey)) next.delete(groupKey)
+      else next.add(groupKey)
       return next
     })
   }
@@ -213,24 +191,23 @@ function TocSidebar({
         {groups.map((group, gi) => {
           const isExpanded =
             !hasVolumes ||
-            group.volumeNum === null ||
-            expandedVolumes.has(group.volumeNum)
+            expandedVolumes.has(group.key)
 
           const analyzedCount = group.chapters.filter(
             (c) => c.analysis_status === "completed",
           ).length
 
           return (
-            <div key={gi}>
+            <div key={`${group.key}-${gi}`}>
               {/* Volume header */}
-              {hasVolumes && group.volumeNum !== null && (
+              {hasVolumes && (
                 <button
                   className="text-muted-foreground flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs font-medium hover:bg-accent"
-                  onClick={() => toggleVolume(group.volumeNum)}
+                  onClick={() => toggleVolume(group.key)}
                 >
                   <ChevronIcon expanded={isExpanded} />
                   <span className="flex-1 truncate">
-                    {group.volumeTitle || `第${group.volumeNum}卷`}
+                    {group.title}
                   </span>
                   <span className="text-muted-foreground/60 text-[10px]">
                     {analyzedCount}/{group.chapters.length}
@@ -248,7 +225,7 @@ function TocSidebar({
                       ref={isCurrent ? currentRef : undefined}
                       className={cn(
                         "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent",
-                        hasVolumes && group.volumeNum !== null && "pl-6",
+                        hasVolumes && "pl-6",
                         isCurrent && "bg-accent font-medium",
                       )}
                       onClick={() => onSelect(ch.chapter_num)}
@@ -389,8 +366,10 @@ export default function ReadingPage() {
   const reset = useReadingStore((s) => s.reset)
 
   const openEntityCard = useEntityCardStore((s) => s.openCard)
+  const openConceptPopup = useEntityCardStore((s) => s.openConceptPopup)
   const {
-    fontSize, lineHeight, setFontSize, setLineHeight,
+    fontSize, lineHeight, paragraphIndent,
+    setFontSize, setLineHeight, setParagraphIndent,
     highlightEnabled, setHighlightEnabled,
     hiddenEntityTypes, toggleEntityType,
   } = useReadingSettingsStore()
@@ -448,11 +427,30 @@ export default function ReadingPage() {
 
   const handleEntityClick = useCallback(
     (name: string, type: string) => {
-      if (type === "concept") return // concepts have no profile card
       const canonical = aliasMap[name] ?? name
+      if (type === "concept") {
+        if (!novelId) return
+        fetchConceptDetail(novelId, canonical)
+          .then((data) => {
+            const detail = data as {
+              name?: string
+              definition?: string
+              category?: string
+              related_concepts?: string[]
+            }
+            openConceptPopup({
+              name: detail.name ?? canonical,
+              definition: detail.definition ?? "",
+              category: detail.category ?? "概念",
+              related: detail.related_concepts ?? [],
+            })
+          })
+          .catch(() => {})
+        return
+      }
       openEntityCard(canonical, type as EntityType)
     },
-    [openEntityCard, aliasMap],
+    [aliasMap, novelId, openConceptPopup, openEntityCard],
   )
 
   // Filtered entities for highlight (2.6)
@@ -966,9 +964,11 @@ export default function ReadingPage() {
               <ReadingSettingsPanel
                 fontSize={fontSize}
                 lineHeight={lineHeight}
+                paragraphIndent={paragraphIndent}
                 hiddenEntityTypes={hiddenEntityTypes}
                 onFontSizeChange={setFontSize}
                 onLineHeightChange={setLineHeight}
+                onParagraphIndentChange={setParagraphIndent}
                 onToggleEntityType={toggleEntityType}
                 onClose={() => setShowSettings(false)}
               />
@@ -1083,8 +1083,9 @@ export default function ReadingPage() {
                           <p
                             key={i}
                             data-para={i}
+                            style={{ textIndent: paragraphIndent === "two" ? "2em" : undefined }}
                             className={cn(
-                              "mb-2 transition-colors",
+                              "mb-2 whitespace-pre-wrap transition-colors",
                               sceneIdx != null && `border-l-3 pl-3 ${borderColor}`,
                               isActive && "bg-accent/30 rounded-r",
                             )}
@@ -1096,9 +1097,17 @@ export default function ReadingPage() {
                     )}
                   </div>
                 ) : (
-                  /* Normal whole-block rendering */
-                  <div className={cn("whitespace-pre-wrap", FONT_SIZE_MAP[fontSize], LINE_HEIGHT_MAP[lineHeight])}>
-                    {renderText(currentChapter.content)}
+                  /* Paragraph-level rendering so indentation applies to every paragraph */
+                  <div className={cn(FONT_SIZE_MAP[fontSize], LINE_HEIGHT_MAP[lineHeight])}>
+                    {paragraphs.map((p, i) => (
+                      <p
+                        key={i}
+                        className="mb-2 whitespace-pre-wrap"
+                        style={{ textIndent: paragraphIndent === "two" ? "2em" : undefined }}
+                      >
+                        {renderText(p)}
+                      </p>
+                    ))}
                   </div>
                 )}
               </>
@@ -1153,17 +1162,21 @@ export default function ReadingPage() {
 function ReadingSettingsPanel({
   fontSize,
   lineHeight,
+  paragraphIndent,
   hiddenEntityTypes,
   onFontSizeChange,
   onLineHeightChange,
+  onParagraphIndentChange,
   onToggleEntityType,
   onClose,
 }: {
   fontSize: FontSize
   lineHeight: LineHeight
+  paragraphIndent: ParagraphIndent
   hiddenEntityTypes: string[]
   onFontSizeChange: (s: FontSize) => void
   onLineHeightChange: (h: LineHeight) => void
+  onParagraphIndentChange: (indent: ParagraphIndent) => void
   onToggleEntityType: (type: string) => void
   onClose: () => void
 }) {
@@ -1220,6 +1233,29 @@ function ReadingSettingsPanel({
                 onClick={() => onLineHeightChange(l.value)}
               >
                 {l.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-3">
+          <span className="text-muted-foreground mb-1 block text-xs">首行缩进</span>
+          <div className="flex gap-1">
+            {([
+              { value: "none", label: "无" },
+              { value: "two", label: "两个字" },
+            ] as const).map((option) => (
+              <button
+                key={option.value}
+                className={cn(
+                  "flex-1 rounded px-2 py-1 text-xs transition-colors",
+                  paragraphIndent === option.value
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted hover:bg-accent",
+                )}
+                onClick={() => onParagraphIndentChange(option.value)}
+              >
+                {option.label}
               </button>
             ))}
           </div>

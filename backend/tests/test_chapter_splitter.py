@@ -237,6 +237,19 @@ def test_volume_assignment():
     assert len(set(vol_nums)) >= 2  # At least 2 volumes
 
 
+def test_bonus_chapters_do_not_inherit_last_explicit_volume():
+    """Bonus material after the final volume stays in a separate group."""
+    text = (
+        "第一卷 开端\n\n"
+        "第一章 正文\n" + _body() + "\n\n"
+        "第二卷 结局\n\n"
+        "第一章 收束\n" + _body() + "\n\n"
+        "番外 后日谈\n" + _body()
+    )
+    r = split_chapters_ex(text)
+    assert [ch.volume_num for ch in r.chapters] == [1, 2, None]
+
+
 def test_dedup_adjacent():
     """Duplicate adjacent chapter titles should be merged."""
     text = (
@@ -251,18 +264,52 @@ def test_dedup_adjacent():
 
 
 def test_volume_reset_detection():
-    """Repeated chapter numbers should trigger volume inference."""
+    """A source chapter number reset should trigger volume inference."""
     text = (
         "第一章 开始A\n" + _body() + "\n\n"
         "第二章 继续A\n" + _body() + "\n\n"
+        "第三章 结束A\n" + _body() + "\n\n"
         "第一章 开始B\n" + _body() + "\n\n"  # Reset
         "第二章 继续B\n" + _body()
     )
     r = split_chapters_ex(text)
-    # Should detect volume reset
-    vol_nums = [ch.volume_num for ch in r.chapters if ch.volume_num is not None]
-    if vol_nums:
-        assert len(set(vol_nums)) >= 2
+    assert [ch.volume_num for ch in r.chapters] == [1, 1, 1, 2, 2]
+
+
+def test_duplicate_chapter_number_does_not_create_volume():
+    """An exact duplicate chapter number inside a volume is not a reset."""
+    text = (
+        "第二百七十七章 前篇\n" + _body() + "\n\n"
+        "第二百七十八章 上篇\n" + _body() + "\n\n"
+        "第二百七十八章 下篇\n" + _body() + "\n\n"
+        "第二百七十九章 后篇\n" + _body()
+    )
+    r = split_chapters_ex(text)
+    assert all(ch.volume_num is None for ch in r.chapters)
+
+
+def test_short_punctuated_chapter_titles_are_preserved():
+    """Question/exclamation marks are valid in short chapter titles."""
+    text = (
+        "第一章 第187章 谁来？\n" + _body() + "\n\n"
+        "第二章 第144章 神话时代？马甲时代！\n" + _body()
+    )
+    r = split_chapters_ex(text)
+    assert [ch.title for ch in r.chapters] == [
+        "第187章 谁来？",
+        "第144章 神话时代？马甲时代！",
+    ]
+
+
+def test_body_like_heading_suffix_uses_generic_title():
+    """A prose-like suffix is still rejected as an accidental title."""
+    prose = "城市里的人们忽然发现街道已经封闭，远处传来了急促的脚步声。"
+    text = (
+        f"第一章 {prose}\n" + _body() + "\n\n"
+        "第二章 正常标题\n" + _body()
+    )
+    r = split_chapters_ex(text)
+    assert r.chapters[0].title == "第 1 节"
 
 
 # ── Custom Input Tests ────────────────────────────────────────

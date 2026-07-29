@@ -16,6 +16,7 @@ class ChapterInfo:
     volume_num: int | None = None
     volume_title: str | None = None
     _text_pos: int = field(default=0, repr=False)  # internal: position in source text
+    _source_chapter_num: int | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -786,12 +787,16 @@ def _split_by_matches(
             title = _derive_separator_title(chapter_num, content)
 
         # v0.71.2: title sanity check — if extracted title is actually a body
-        # paragraph (long + contains sentence punctuation), replace with generic
-        # "第N节" name. Catches cases like 鼠疫 where 5-part structure has no
-        # section titles and the splitter accidentally captured paragraph text.
-        if title and (len(title) > 40 or any(ch in title for ch in "。！？")):
+        # paragraph, replace it with a generic "第N节" name. Short, legitimate
+        # titles may end in punctuation (for example "谁来？"), so punctuation
+        # alone must not make a title invalid.
+        if title and (
+            len(title) > 40
+            or (len(title) > 20 and any(ch in title for ch in "。！？"))
+        ):
             title = f"第 {chapter_num} 节"
 
+        source_chapter_num = _extract_source_chapter_num(match.group(0))
         chapters.append(
             ChapterInfo(
                 chapter_num=chapter_num,
@@ -799,6 +804,7 @@ def _split_by_matches(
                 content=content,
                 word_count=len(content),
                 _text_pos=match.start(),
+                _source_chapter_num=source_chapter_num,
             )
         )
 
@@ -864,6 +870,12 @@ def _extract_title(mode: str, match: re.Match) -> str:
     if mode == "section_zh":
         return match.group(0).strip()
 
+    # Keep structural markers in their display title so downstream grouping can
+    # distinguish bonus material from an ordinary unassigned chapter.
+    full = match.group(0).strip()
+    if mode == "chapter_zh" and _BONUS_TITLE_PATTERN.match(full):
+        return full
+
     # For chapter_zh, markdown: group 1 is the title (subtitle after marker)
     title = match.group(1).strip() if match.group(1) else ""
     if title:
@@ -871,7 +883,6 @@ def _extract_title(mode: str, match: re.Match) -> str:
 
     # chapter_zh with 第X部 prefix: extract just the chapter marker
     # e.g. "第二部 不夜之候 第一章" → "第一章"
-    full = match.group(0).strip()
     if mode == "chapter_zh":
         ch_marker = re.search(r"第[零〇一二两三四五六七八九十百千万\d]+章", full)
         if ch_marker and ch_marker.start() > 0:
@@ -922,11 +933,12 @@ def _assign_volumes(text: str, chapters: list[ChapterInfo]) -> None:
 
     # Assign each chapter to the most recent volume before its position
     for ch in chapters:
-        for vol_start, vol_num, vol_title in reversed(volumes):
-            if ch._text_pos >= vol_start:
-                ch.volume_num = vol_num
-                ch.volume_title = vol_title
-                break
+        if not _BONUS_TITLE_PATTERN.match(ch.title.strip()):
+            for vol_start, vol_num, vol_title in reversed(volumes):
+                if ch._text_pos >= vol_start:
+                    ch.volume_num = vol_num
+                    ch.volume_title = vol_title
+                    break
 
         # Strip volume marker lines from content
         cleaned = _VOLUME_PATTERN.sub("", ch.content).strip()
@@ -937,6 +949,39 @@ def _assign_volumes(text: str, chapters: list[ChapterInfo]) -> None:
 
 # Pattern for extracting chapter numbers from titles (e.g., "第一章", "第3回")
 _CH_NUM_PATTERN = re.compile(r"第([零〇一二两三四五六七八九十百千万\d]+)[章回节]")
+_BONUS_TITLE_PATTERN = re.compile(r"^(?:番外|后记|尾声|完本感言)")
+
+
+def _parse_chapter_num(value: str) -> int | None:
+    """Convert an Arabic or common Chinese chapter number to an integer."""
+    if value.isdigit():
+        return int(value)
+
+    total = 0
+    current = 0
+    for char in value:
+        if char == "两":
+            current = 2
+            continue
+        number = _CN_NUMS.get(char)
+        if number is None:
+            return None
+        if number < 10:
+            current = number
+        elif number == 10_000:
+            total = (total + (current or 1)) * number
+            current = 0
+        else:
+            total += (current or 1) * number
+            current = 0
+    result = total + current
+    return result if result > 0 else None
+
+
+def _extract_source_chapter_num(heading: str) -> int | None:
+    """Read the first chapter number from the original heading line."""
+    match = _CH_NUM_PATTERN.search(heading)
+    return _parse_chapter_num(match.group(1)) if match else None
 
 
 def _dedup_adjacent_chapters(chapters: list[ChapterInfo]) -> list[ChapterInfo]:
@@ -975,7 +1020,9 @@ def _detect_volume_resets(chapters: list[ChapterInfo]) -> None:
     """Infer volume boundaries when chapter numbers reset.
 
     Only runs when _assign_volumes() found no volume markers.
-    Detects repeated chapter labels (e.g., two "第一章") as volume boundaries.
+    A decrease to a low chapter number (normally 第一章) starts a new volume.
+    Exact duplicate labels are not boundaries: duplicate headings can occur
+    inside one volume and previously caused false volume splits.
     """
     if not chapters:
         return
@@ -983,25 +1030,32 @@ def _detect_volume_resets(chapters: list[ChapterInfo]) -> None:
     if any(ch.volume_num is not None for ch in chapters):
         return
 
-    seen_labels: set[str] = set()
-    vol_num = 1
-
-    for ch in chapters:
-        m = _CH_NUM_PATTERN.search(ch.title)
-        if not m:
+    boundaries: list[int] = []
+    previous_num: int | None = None
+    for index, ch in enumerate(chapters):
+        source_num = ch._source_chapter_num
+        if source_num is None:
+            source_num = _extract_source_chapter_num(ch.title)
+        if source_num is None:
             continue
-        ch_label = m.group(0)  # e.g., "第一章"
-        if ch_label in seen_labels:
-            # Chapter number repeated → new volume starts
-            vol_num += 1
-            seen_labels.clear()
-        seen_labels.add(ch_label)
-        ch.volume_num = vol_num
+        if (
+            previous_num is not None
+            and source_num <= 3
+            and source_num < previous_num
+        ):
+            boundaries.append(index)
+        previous_num = source_num
 
-    # Only keep volume info if we actually found multiple volumes
-    if vol_num <= 1:
-        for ch in chapters:
-            ch.volume_num = None
+    if not boundaries:
+        return
+
+    boundary_set = set(boundaries)
+    vol_num = 1
+    for index, ch in enumerate(chapters):
+        if index in boundary_set:
+            vol_num += 1
+        if not _BONUS_TITLE_PATTERN.match(ch.title.strip()):
+            ch.volume_num = vol_num
 
 
 def _heuristic_title_split(text: str) -> list[ChapterInfo] | None:
