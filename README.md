@@ -60,7 +60,7 @@
 - ⚔️ **势力图** — 组织架构与势力关系网络
 - 💬 **RAG 智能问答** — 基于原文的检索增强问答，流式对话，答案来源溯源
 - 📤 **设定集导出** — Markdown / Word / Excel / PDF 四种格式，可选模板
-- 🤖 **多 LLM 支持** — 本地 Ollama（qwen3:8b 等）+ 10 大云端供应商（DeepSeek、MiniMax、Claude、OpenAI、Gemini 等）
+- 🤖 **多 LLM 支持** — 本地 Ollama（qwen3:8b 等）+ 10 大云端供应商（DeepSeek、MiniMax、Claude、OpenAI、Gemini 等）+ Codex CLI 登录态
 - 📊 **全链路分析管线** — 实体预扫描 → 逐章提取 → 聚合 → 可视化，异步执行、暂停恢复、失败重试、Token 预算自动缩放
 
 ## 适用场景
@@ -119,6 +119,117 @@ cd frontend && npm install && npm run dev
 
 > 不想本地部署？试试 [在线 Demo](https://ai-reader.cc/demo/honglou/graph?v=3)，含红楼梦和西游记完整分析数据。
 
+### 使用 Codex CLI 登录态（本地开发）
+
+后端可以通过稳定的非交互式 `codex exec` 接口复用 Codex CLI 已保存的认证，
+无需向 AI Reader 配置或复制 OpenAI Platform API Key。
+
+1. 按 [Codex CLI 官方文档](https://developers.openai.com/codex/cli/)
+   安装最新 CLI，并运行 `codex login` 完成登录。
+2. 使用以下环境变量启动后端：
+
+```bash
+LLM_PROVIDER=codex \
+CODEX_REASONING_EFFORT=low \
+CODEX_MAX_BATCH_CHAPTERS=10 \
+SCENE_LLM_ENABLED=false \
+AUXILIARY_LLM_ENABLED=false \
+VOT_SPATIAL_ENABLED=false \
+uv run uvicorn src.api.main:app --host 127.0.0.1 --port 8000
+```
+
+也可以正常启动 AI Reader 后，进入“设置 → AI 引擎 → Codex 会员”查看 CLI
+版本和登录状态，再点击“切换到此引擎”。切换结果会保存，重启后继续使用
+Codex；显式设置 `LLM_PROVIDER=codex` 时仍以启动环境为准。为了避免同一个
+分析任务混用不同 Provider，存在运行或暂停中的任务时不能切换引擎。
+
+默认不固定模型，沿用当前 Codex CLI 可用的默认模型。也可以在“设置 → AI
+引擎 → Codex 会员 → 分析配置”中选择模型和推理强度；模型列表从本机
+`codex debug models` 动态读取，读取失败时回退到内置的 Sol / Terra / Luna
+列表。为了控制会员额度，界面提供 `low` 到 `max`，不提供面向多代理重型任务的
+`ultra`。设置页保存的是逐章分析和其他普通 LLM 调用使用的全局默认值。
+
+“智能问答”页还提供一次请求级的模型和推理强度选择，只影响该次回答，不修改
+逐章分析的全局设置。每条 Codex 回答会记录实际模型与推理强度，便于之后比较
+质量和额度。需要启动时明确覆盖时仍可设置 `CODEX_MODEL` 和
+`CODEX_REASONING_EFFORT`；显式环境变量适合作为部署方策略，界面设置适合日常
+切换。如果桌面环境找不到 CLI，可将 `CODEX_BIN` 设置为可执行文件的绝对路径。
+
+Codex 调用使用临时会话、只读沙箱和单并发。默认每次网页/API 提交最多十章，
+避免误点整书分析；`CODEX_MAX_BATCH_CHAPTERS=0` 可关闭这一保护。关闭场景和
+辅助 LLM 步骤后，每章只保留核心事实抽取，但相应的场景、自动简介和 LLM
+空间补全也会停用。
+
+与其他云端 Provider 一样，待分析的章节内容会作为提示发送给模型服务；
+“本地存储”不表示模型推理完全离线。需要正文不离开设备时应继续使用 Ollama。
+
+该模式消耗 Codex/ChatGPT 订阅额度，并不等于免费 API。AI Reader 会保存 CLI
+返回的 token 使用量，但不会把订阅额度换算为美元费用。建议先分析少量章节，
+检查质量和额度后再分批继续。
+
+### 分析分层与 Codex 职责边界
+
+为避免把“使用 Codex 作为逐章模型”和“使用 Codex 管理分析任务”混为一谈，
+本分支按以下三层理解整个工作流：
+
+| 层 | 名称 | 输入与输出 | 是否调用生成式大模型 |
+|---|---|---|---|
+| 第一步 | 本地初步分析 | 对全书做章节切分、字数与词频统计、实体候选扫描、里程碑定位，得到可检索的统计基线 | 否 |
+| 第二步 | AI Reader 逐章结构化分析 | 将章节和上下文发送给所选 Provider，保存人物、关系、事件、地点、物品、组织和概念等 `ChapterFact` | 是；Provider 可以是 Ollama、云端 API 或 Codex CLI |
+| 第三步 | Codex 工程与任务监督 | 改造和测试代码，选择/启动批次，监控失败与重试，检查数据库完整性和 Token 记录 | 使用 Codex 代理，但不增加新的小说内容分析层 |
+
+第三步的 Codex **只负责两件事**：
+
+1. **工程改造**：Provider 接入、额度保护、测试、质量规则和运行文档。
+2. **分析任务监督**：启动/暂停批次，监控重试和失败，核对章节状态与数据完整性。
+
+第三步不负责对小说做综合解读，也不会把 Codex 代理生成的主题判断、人物评价
+或文学结论回写到 AI Reader 数据库。第二步如果选择 `LLM_PROVIDER=codex`，
+Codex 此时只是 AI Reader 的逐章模型 Provider，与第三步的监督角色不同。
+
+第一步特指 `EntityPreScanner` 的 CPU 统计扫描以及其他本地确定性统计。
+项目原有预扫描还支持一次可选的 LLM 候选分类；需要严格保持第一步不调用
+大模型时，应设置 `AUXILIARY_LLM_ENABLED=false`。
+
+### 大模型结果的纠错机制
+
+大模型结构化抽取可能出现遗漏、错误别名、关系误判、地点层级错误或 JSON
+截断。项目当前提供三层纠错：
+
+1. **入库前自动校验**
+   - JSON Schema、Pydantic 类型校验和常见字段名归一化。
+   - JSON/网络失败自动重试；长章节可分段抽取后合并。
+   - `FactValidator` 清理无效名称、关系、地点、事件和空间关系，并同步修正
+     事件参与者与别名。
+   - 聚合阶段删除自引用关系、抑制异常关系振荡，并过滤在全书原文中完全找不到
+     本名或别名证据的“幻觉孤岛”人物。
+
+2. **分析后人工覆盖**
+   - 人物：合并别名、拆分误归别名、实体改名。
+   - 概念：改名、改分类、删除。
+   - 世界结构：修改地点的区域、层、父级、类型和传送门；地图坐标也可手动调整。
+   - 导入元数据：可以在设置页修改书名、作者和卷名；这只修改本地显示元数据，
+     不改导入文件、章节正文、章节所属卷，也不会自动重新分章。
+   - 修正保存在独立的 override 层，优先于自动结果，可在“我的修正”中撤销，
+     不改动小说原文；重新聚合或继续分析后仍会重新应用。
+
+3. **按范围强制重新分析**
+   - 分析页可以选择章节范围并执行“强制重新分析”，新的 `ChapterFact` 会覆盖
+     该范围原有逐章结果。
+   - 重新分析会再次消耗模型额度；人工 override 不会因为普通的强制重分析而
+     自动删除。
+
+当前纠错边界：项目还没有覆盖所有 `ChapterFact` 字段的通用逐条编辑器。
+如果某一章的具体事件、人物关系、能力变化或证据文本发生语义错误，目前主要
+通过强制重新分析处理；别名、概念和世界结构错误则优先使用人工 override。
+自动校验只能拦截结构性和部分可规则化错误，不能保证每条文学语义都与原文一致。
+
+智能问答当前保持**只读**，不会把“帮我改掉这个结果”直接解释成数据库写操作。
+这是刻意的安全边界：自然语言可能指代不清，模型也可能再次判断错误。后续若
+接入问答纠错，应采用“模型生成带类型的修正建议 → 展示原文证据和变更前后差异
+→ 用户逐条确认 → 写入可撤销 override”的流程，并记录操作者、时间和来源章节；
+不应允许模型自由生成 SQL、直接改原始 `ChapterFact` 或静默覆盖人工修正。
+
 ## 技术栈
 
 | 层 | 技术 |
@@ -129,7 +240,7 @@ cd frontend && npm install && npm run dev
 | 状态管理 | Zustand 5 |
 | 后端 | Python + FastAPI（async）+ aiosqlite |
 | 数据库 | SQLite（结构化数据）+ ChromaDB（向量检索） |
-| LLM | Ollama（本地）或 OpenAI 兼容 API（云端，支持 DeepSeek/MiniMax/Claude/OpenAI/Gemini 等 10 大供应商） |
+| LLM | Ollama（本地）、Codex CLI 登录态，或 OpenAI 兼容 API（云端，支持 DeepSeek/MiniMax/Claude/OpenAI/Gemini 等 10 大供应商） |
 | 中文 NLP | jieba 分词 + 实体预扫描 |
 
 ## 版本记录

@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import Markdown from "react-markdown"
-import { exportConversationUrl } from "@/api/client"
+import { exportConversationUrl, fetchCodexConfig } from "@/api/client"
+import type { CodexConfigResponse } from "@/api/types"
 import { useChatStore } from "@/stores/chatStore"
+import {
+  adjustReasoningEffort,
+  isQuotaHeavyLevel,
+  reasoningLevelLabel,
+  supportedReasoningLevels,
+} from "@/lib/codexProfile"
 import { novelPath } from "@/lib/novelPaths"
 import { useLlmInfoStore, formatLlmLabel } from "@/stores/llmInfoStore"
 import { EntityCardDrawer } from "@/components/entity-cards/EntityCardDrawer"
@@ -14,6 +21,10 @@ export default function ChatPage() {
   const navigate = useNavigate()
   const [input, setInput] = useState("")
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [codexConfig, setCodexConfig] = useState<CodexConfigResponse | null>(null)
+  const [chatModel, setChatModel] = useState("")
+  const [chatEffort, setChatEffort] = useState("low")
+  const [codexConfigError, setCodexConfigError] = useState("")
 
   const {
     conversations,
@@ -36,6 +47,29 @@ export default function ChatPage() {
   const llmInfo = useLlmInfoStore()
   useEffect(() => { llmInfo.fetch() }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const llmLabel = formatLlmLabel(llmInfo.model, llmInfo.provider)
+  const isCodex = llmInfo.provider === "codex"
+
+  useEffect(() => {
+    if (!isCodex) return
+    let cancelled = false
+    fetchCodexConfig()
+      .then((config) => {
+        if (cancelled) return
+        setCodexConfig(config)
+        setChatModel(config.model)
+        setChatEffort(config.reasoning_effort)
+        setCodexConfigError("")
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setCodexConfigError(error instanceof Error ? error.message : "无法读取 Codex 配置")
+      })
+    return () => { cancelled = true }
+  }, [isCodex])
+
+  const reasoningLevels = codexConfig
+    ? supportedReasoningLevels(codexConfig.models, chatModel)
+    : ["low", "medium", "high", "xhigh", "max"]
 
   // Load conversations
   useEffect(() => {
@@ -63,9 +97,24 @@ export default function ChatPage() {
       convId = await newConversation(novelId)
     }
 
-    sendQuestion(novelId, input.trim())
+    sendQuestion(
+      novelId,
+      input.trim(),
+      isCodex ? chatModel : undefined,
+      isCodex ? chatEffort : undefined,
+    )
     setInput("")
-  }, [input, novelId, streaming, activeConversationId, newConversation, sendQuestion])
+  }, [
+    input,
+    novelId,
+    streaming,
+    activeConversationId,
+    newConversation,
+    sendQuestion,
+    isCodex,
+    chatModel,
+    chatEffort,
+  ])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -218,6 +267,15 @@ export default function ChatPage() {
                 </div>
               </div>
 
+              {msg.role === "assistant" && msg.llm_model && (
+                <div className="mt-1 ml-9 text-[10px] text-muted-foreground">
+                  {msg.llm_model}
+                  {msg.reasoning_effort
+                    ? ` · 推理${reasoningLevelLabel(msg.reasoning_effort)}`
+                    : ""}
+                </div>
+              )}
+
               {msg.role === "assistant" && msg.sources.length > 0 && (
                 <div className="mt-1 ml-9 flex items-center gap-1.5 flex-wrap">
                   <span className="text-[10px] text-muted-foreground">来源:</span>
@@ -270,7 +328,65 @@ export default function ChatPage() {
 
         {/* Input */}
         <div className="flex-shrink-0 border-t px-6 py-3">
-          <div className="flex gap-3 max-w-3xl mx-auto">
+          <div className="max-w-3xl mx-auto">
+            {isCodex && (
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className="text-[11px] text-muted-foreground">本次问答</span>
+                <select
+                  aria-label="问答 Codex 模型"
+                  className="h-7 max-w-56 rounded-md border bg-background px-2 text-xs"
+                  value={chatModel}
+                  disabled={!codexConfig || streaming}
+                  onChange={(event) => {
+                    const nextModel = event.target.value
+                    setChatModel(nextModel)
+                    if (codexConfig) {
+                      setChatEffort(
+                        adjustReasoningEffort(
+                          codexConfig.models,
+                          nextModel,
+                          chatEffort,
+                        ),
+                      )
+                    }
+                  }}
+                >
+                  <option value="">跟随 Codex 默认模型</option>
+                  {codexConfig?.models.map((model) => (
+                    <option key={model.slug} value={model.slug}>
+                      {model.display_name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="问答 Codex 推理强度"
+                  className="h-7 rounded-md border bg-background px-2 text-xs"
+                  value={chatEffort}
+                  disabled={!codexConfig || streaming}
+                  onChange={(event) => setChatEffort(event.target.value)}
+                >
+                  {reasoningLevels.map((effort) => (
+                    <option key={effort} value={effort}>
+                      推理{reasoningLevelLabel(effort)}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[10px] text-muted-foreground">
+                  仅影响这次问答
+                </span>
+                {isQuotaHeavyLevel(chatEffort) && (
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400">
+                    较慢且通常消耗更多额度
+                  </span>
+                )}
+                {codexConfigError && (
+                  <span className="text-[10px] text-red-500">
+                    {codexConfigError}
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="flex gap-3">
             <textarea
               className="flex-1 resize-none rounded-lg border bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               rows={2}
@@ -288,6 +404,7 @@ export default function ChatPage() {
             >
               发送
             </Button>
+            </div>
           </div>
         </div>
       </div>

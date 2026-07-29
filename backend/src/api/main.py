@@ -33,6 +33,13 @@ from src.api.websocket import analysis_ws, chat_ws
 
 async def _restore_persisted_settings() -> None:
     """Restore LLM mode and settings from app_settings on startup."""
+    from src.infra import config
+
+    # An explicit Codex environment is an operator-level launch choice.
+    # Do not let a previously saved Ollama/cloud UI setting override it.
+    if config.LLM_PROVIDER == "codex":
+        return
+
     from src.db.sqlite_db import get_connection
 
     try:
@@ -40,12 +47,13 @@ async def _restore_persisted_settings() -> None:
         try:
             settings: dict[str, str] = {}
             for key in ("llm_mode", "ollama_default_model", "llm_max_tokens",
-                         "cloud_base_url", "cloud_model"):
+                         "cloud_base_url", "cloud_model", "codex_model",
+                         "codex_reasoning_effort"):
                 row = await conn.execute(
                     "SELECT value FROM app_settings WHERE key=?", (key,),
                 )
                 result = await row.fetchone()
-                if result and result[0]:
+                if result and (result[0] or key == "codex_model"):
                     settings[key] = result[0]
         finally:
             await conn.close()
@@ -53,13 +61,25 @@ async def _restore_persisted_settings() -> None:
         if not settings:
             return
 
-        from src.infra import config
-
         if settings.get("llm_max_tokens"):
             config.update_max_tokens(int(settings["llm_max_tokens"]))
 
+        if (
+            "codex_model" in settings
+            or settings.get("codex_reasoning_effort")
+        ):
+            config.update_codex_config(
+                settings.get("codex_model", config.CODEX_MODEL),
+                settings.get(
+                    "codex_reasoning_effort",
+                    config.CODEX_REASONING_EFFORT,
+                ),
+            )
+
         mode = settings.get("llm_mode", "ollama")
-        if mode == "openai":
+        if mode == "codex":
+            config.switch_to_codex()
+        elif mode == "openai":
             from src.infra.secret_store import load_api_key
 
             api_key = await load_api_key() or ""
@@ -136,9 +156,21 @@ app.include_router(chat_ws.router)
 
 @app.get("/api/health")
 async def health():
-    from src.infra.config import LLM_PROVIDER, get_model_name
-    return {
+    from src.infra import config
+
+    result = {
         "status": "ok",
-        "llm_provider": LLM_PROVIDER,
-        "llm_model": get_model_name(),
+        "llm_provider": config.LLM_PROVIDER,
+        "llm_model": config.get_model_name(),
     }
+    if config.LLM_PROVIDER == "codex":
+        result["codex_profile"] = {
+            "reasoning_effort": config.CODEX_REASONING_EFFORT,
+            "concurrency": 1,
+            "example_count": config.CODEX_EXAMPLE_COUNT,
+            "max_batch_chapters": config.CODEX_MAX_BATCH_CHAPTERS,
+            "scene_llm_enabled": config.SCENE_LLM_ENABLED,
+            "auxiliary_llm_enabled": config.AUXILIARY_LLM_ENABLED,
+            "vot_spatial_enabled": config.VOT_SPATIAL_ENABLED,
+        }
+    return result

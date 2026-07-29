@@ -1,6 +1,6 @@
 """Pydantic request/response schemas for novel endpoints."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ChapterPreviewItem(BaseModel):
@@ -60,6 +60,15 @@ class ConfirmImportRequest(BaseModel):
     title: str
     author: str | None = None
     excluded_chapters: list[int] = []
+
+
+class UpdateNovelMetadataRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    author: str | None = Field(default=None, max_length=200)
+
+
+class UpdateVolumeTitleRequest(BaseModel):
+    title: str = Field(max_length=200)
 
 
 class ReSplitRequest(BaseModel):

@@ -365,10 +365,52 @@ def _extract_source_chapters(answer: str) -> list[int]:
     return sorted(set(int(m) for m in matches))
 
 
+async def _get_query_client(
+    model: str | None,
+    reasoning_effort: str | None,
+):
+    """Build a request-scoped Codex client when chat overrides are present."""
+    from src.infra import config
+
+    if config.LLM_PROVIDER != "codex":
+        if model is not None or reasoning_effort is not None:
+            raise ValueError("当前 AI 引擎不支持问答模型或推理强度覆盖")
+        return get_llm_client(), {
+            "model": config.get_model_name(),
+            "reasoning_effort": "",
+        }
+
+    from src.infra.codex_exec_client import (
+        CodexExecClient,
+        validate_codex_profile,
+    )
+
+    selected_model = config.CODEX_MODEL if model is None else model.strip()
+    selected_effort = (
+        config.CODEX_REASONING_EFFORT
+        if reasoning_effort is None
+        else reasoning_effort.strip()
+    )
+    profile = await validate_codex_profile(
+        selected_model,
+        selected_effort,
+        config.CODEX_BIN,
+    )
+    client = CodexExecClient(
+        codex_bin=config.CODEX_BIN,
+        model=profile["model"],
+        reasoning_effort=profile["reasoning_effort"],
+        min_timeout_seconds=config.CODEX_MIN_TIMEOUT_SECONDS,
+    )
+    return client, profile
+
+
 async def query_stream(
     novel_id: str,
     question: str,
     conversation_id: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> AsyncIterator[dict]:
     """
     Stream QA response.
@@ -378,7 +420,7 @@ async def query_stream(
       {"type": "sources", "chapters": [...]} — source chapters when done
       {"type": "done"}                       — signal completion
     """
-    llm = get_llm_client()
+    llm, profile = await _get_query_client(model, reasoning_effort)
 
     # 1. Load all chapter facts for the novel
     all_facts = await chapter_fact_store.get_all_chapter_facts(novel_id)
@@ -474,6 +516,11 @@ async def query_stream(
     user_prompt = f"{question}\n\n（注：当前已分析 {analyzed_count} 章内容）"
 
     # 6. Stream LLM response
+    yield {
+        "type": "profile",
+        "model": profile["model"] or "codex-default",
+        "reasoning_effort": profile["reasoning_effort"],
+    }
     full_answer = ""
     try:
         async for token in llm.generate_stream(
@@ -508,6 +555,8 @@ async def query_stream(
                 "assistant",
                 full_answer,
                 sources_json=json.dumps(final_sources),
+                llm_model=profile["model"] or "codex-default",
+                reasoning_effort=profile["reasoning_effort"] or None,
             )
         except Exception as e:
             logger.error(f"Failed to save messages: {e}")

@@ -112,6 +112,81 @@ async def get_novel(novel_id: str) -> dict | None:
         await conn.close()
 
 
+async def update_metadata(
+    novel_id: str,
+    title: str,
+    author: str | None,
+) -> dict | None:
+    """Update user-editable novel metadata without touching source text."""
+    conn = await get_connection()
+    try:
+        cursor = await conn.execute(
+            """UPDATE novels
+               SET title = ?, author = ?, updated_at = datetime('now')
+               WHERE id = ?""",
+            (title, author, novel_id),
+        )
+        if cursor.rowcount == 0:
+            return None
+        await conn.commit()
+    finally:
+        await conn.close()
+    return await get_novel(novel_id)
+
+
+async def list_volumes(novel_id: str) -> list[dict]:
+    """Return one editable metadata record per numbered volume."""
+    conn = await get_connection()
+    try:
+        cursor = await conn.execute(
+            """SELECT
+                 volume_num,
+                 COALESCE(MAX(NULLIF(TRIM(volume_title), '')), '') AS title,
+                 MIN(chapter_num) AS first_chapter,
+                 MAX(chapter_num) AS last_chapter,
+                 COUNT(*) AS chapter_count
+               FROM chapters
+               WHERE novel_id = ? AND volume_num IS NOT NULL
+               GROUP BY volume_num
+               ORDER BY first_chapter""",
+            (novel_id,),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+    finally:
+        await conn.close()
+
+
+async def update_volume_title(
+    novel_id: str,
+    volume_num: int,
+    title: str,
+) -> dict | None:
+    """Rename one volume across all of its chapters in one transaction."""
+    conn = await get_connection()
+    try:
+        cursor = await conn.execute(
+            """UPDATE chapters
+               SET volume_title = ?
+               WHERE novel_id = ? AND volume_num = ?""",
+            (title or None, novel_id, volume_num),
+        )
+        if cursor.rowcount == 0:
+            return None
+        await conn.execute(
+            "UPDATE novels SET updated_at = datetime('now') WHERE id = ?",
+            (novel_id,),
+        )
+        await conn.commit()
+        count = cursor.rowcount
+    finally:
+        await conn.close()
+    return {
+        "volume_num": volume_num,
+        "title": title,
+        "chapter_count": count,
+    }
+
+
 async def delete_novel(novel_id: str) -> bool:
     """Delete a novel and all associated data. Returns True if a row was deleted."""
     conn = await get_connection()

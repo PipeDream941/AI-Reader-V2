@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS messages (
     role            TEXT NOT NULL,
     content         TEXT NOT NULL,
     sources_json    TEXT,
+    llm_model       TEXT,
+    reasoning_effort TEXT,
     created_at      TEXT DEFAULT (datetime('now'))
 );
 
@@ -261,6 +263,14 @@ async def init_db() -> None:
             try:
                 await conn.execute(
                     f"ALTER TABLE chapter_facts ADD COLUMN {col} {col_type}"
+                )
+            except Exception:
+                pass  # Column already exists
+        # Migration: record per-answer model profile for Q&A provenance
+        for col in ("llm_model", "reasoning_effort"):
+            try:
+                await conn.execute(
+                    f"ALTER TABLE messages ADD COLUMN {col} TEXT"
                 )
             except Exception:
                 pass  # Column already exists

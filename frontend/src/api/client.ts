@@ -7,6 +7,8 @@ import type {
   ChapterEntity,
   ChatMessage,
   CleanAndReSplitRequest,
+  CodexConfigResponse,
+  CodexConfigSaveResponse,
   ConfirmImportRequest,
   Conversation,
   EntityDictionaryResponse,
@@ -17,6 +19,7 @@ import type {
   ImportPreview,
   MapData,
   Novel,
+  NovelVolume,
   NovelsListResponse,
   OverrideType,
   PrescanStatusResponse,
@@ -51,6 +54,36 @@ export function fetchNovels(): Promise<NovelsListResponse> {
 
 export function fetchNovel(novelId: string): Promise<Novel> {
   return apiFetch<Novel>(`/novels/${novelId}`)
+}
+
+export function updateNovelMetadata(
+  novelId: string,
+  metadata: { title: string; author: string | null },
+): Promise<Novel> {
+  return apiFetch<Novel>(`/novels/${novelId}/metadata`, {
+    method: "PATCH",
+    body: JSON.stringify(metadata),
+  })
+}
+
+export function fetchNovelVolumes(
+  novelId: string,
+): Promise<{ volumes: NovelVolume[] }> {
+  return apiFetch<{ volumes: NovelVolume[] }>(`/novels/${novelId}/volumes`)
+}
+
+export function updateNovelVolumeTitle(
+  novelId: string,
+  volumeNum: number,
+  title: string,
+): Promise<Pick<NovelVolume, "volume_num" | "title" | "chapter_count">> {
+  return apiFetch<Pick<NovelVolume, "volume_num" | "title" | "chapter_count">>(
+    `/novels/${novelId}/volumes/${volumeNum}`,
+    {
+    method: "PATCH",
+    body: JSON.stringify({ title }),
+    },
+  )
 }
 
 export function deleteNovel(novelId: string): Promise<{ ok: boolean }> {
@@ -234,12 +267,26 @@ export function fetchSettings(): Promise<{
 }
 
 export function switchLlmMode(
-  mode: string,
+  mode: "ollama" | "openai" | "codex",
   ollamaModel?: string,
-): Promise<{ success: boolean; mode: string; error?: string }> {
+): Promise<{ success: boolean; mode?: string; error?: string }> {
   return apiFetch("/settings/llm-mode", {
     method: "POST",
     body: JSON.stringify({ mode, ollama_model: ollamaModel }),
+  })
+}
+
+export function fetchCodexConfig(refresh = false): Promise<CodexConfigResponse> {
+  return apiFetch(`/settings/codex/config${refresh ? "?refresh=true" : ""}`)
+}
+
+export function saveCodexConfig(
+  model: string,
+  reasoningEffort: string,
+): Promise<CodexConfigSaveResponse> {
+  return apiFetch("/settings/codex/config", {
+    method: "POST",
+    body: JSON.stringify({ model, reasoning_effort: reasoningEffort }),
   })
 }
 

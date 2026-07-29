@@ -103,16 +103,28 @@ async def add_message(
     role: str,
     content: str,
     sources_json: str | None = None,
+    llm_model: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> dict:
     """Add a message to a conversation."""
     conn = await get_connection()
     try:
         cursor = await conn.execute(
             """
-            INSERT INTO messages (conversation_id, role, content, sources_json)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO messages (
+                conversation_id, role, content, sources_json,
+                llm_model, reasoning_effort
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (conversation_id, role, content, sources_json),
+            (
+                conversation_id,
+                role,
+                content,
+                sources_json,
+                llm_model,
+                reasoning_effort,
+            ),
         )
         msg_id = cursor.lastrowid
         # Update conversation timestamp
@@ -141,7 +153,8 @@ async def list_messages(
     try:
         cursor = await conn.execute(
             """
-            SELECT id, conversation_id, role, content, sources_json, created_at
+            SELECT id, conversation_id, role, content, sources_json,
+                   llm_model, reasoning_effort, created_at
             FROM messages
             WHERE conversation_id = ?
             ORDER BY id ASC

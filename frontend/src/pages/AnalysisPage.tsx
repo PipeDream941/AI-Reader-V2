@@ -262,9 +262,14 @@ export default function AnalysisPage() {
           checkEnvironment().catch(() => null),
         ])
         if (!cancelled && envCheck) {
-          // Check LLM availability: Ollama mode needs running+model, cloud mode needs api_available
+          // Check availability using the active provider's own readiness signal.
           if (envCheck.llm_provider === "ollama") {
             setLlmAvailable(envCheck.ollama_running === true && envCheck.model_available === true)
+          } else if (envCheck.llm_provider === "codex") {
+            setLlmAvailable(
+              envCheck.codex?.available === true
+              && envCheck.codex?.authenticated === true,
+            )
           } else {
             setLlmAvailable(envCheck.api_available !== false)
           }
