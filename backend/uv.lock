@@ -23,6 +23,7 @@ dependencies = [
     { name = "keyring" },
     { name = "matplotlib", version = "3.9.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "matplotlib", version = "3.10.8", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "opencc-python-reimplemented" },
     { name = "openpyxl" },
     { name = "opensimplex" },
     { name = "pillow" },
@@ -43,7 +44,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "aiosqlite" },
-    { name = "opencc-python-reimplemented" },
     { name = "pyinstaller" },
     { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pytest", version = "9.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
@@ -61,6 +61,7 @@ requires-dist = [
     { name = "jieba", specifier = ">=0.42.1" },
     { name = "keyring", specifier = ">=25.7.0" },
     { name = "matplotlib", specifier = ">=3.9.4" },
+    { name = "opencc-python-reimplemented", specifier = ">=0.1.7" },
     { name = "openpyxl", specifier = ">=3.1.5" },
     { name = "opensimplex", specifier = ">=0.4.5.1" },
     { name = "pillow", specifier = ">=11.3.0" },
@@ -77,7 +78,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "aiosqlite", specifier = ">=0.22.1" },
-    { name = "opencc-python-reimplemented", specifier = ">=0.1.7" },
     { name = "pyinstaller", specifier = ">=6.19.0" },
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "pytest-asyncio", specifier = ">=1.2.0" },

@@ -566,6 +566,54 @@ class AnalysisService:
                     segment_count=extraction_meta.segment_count,
                 )
 
+                # Adaptive book ontology (non-fatal). The core extraction call
+                # already emitted lightweight candidates, so ordinary chapters
+                # cost no extra request. A dedicated discovery/population pass
+                # is gated by a deterministic structure scout.
+                if _cfg.BOOK_ONTOLOGY_ENABLED:
+                    try:
+                        from src.db import usage_event_store
+                        from src.services.book_ontology_agent import BookOntologyAgent
+                        from src.services.book_ontology_controller import (
+                            BookOntologyController,
+                        )
+
+                        ontology_controller = BookOntologyController(
+                            agent=BookOntologyAgent(self.extractor.llm)
+                        )
+                        await ontology_controller.ingest_observations(
+                            novel_id,
+                            chapter_num,
+                            fact.ontology_observations,
+                        )
+                        scout = ontology_controller.scout.inspect(chapter["content"])
+                        if _cfg.AUXILIARY_LLM_ENABLED and scout.should_scan:
+                            await self._broadcast_stage(
+                                novel_id, chapter_num, "评审本书新结构"
+                            )
+                            ontology_result = await ontology_controller.scan_chapter(
+                                novel_id,
+                                chapter_num,
+                                chapter["content"],
+                                force=True,
+                                auto_activate=True,
+                            )
+                            await usage_event_store.record_event(
+                                "book_ontology_scan",
+                                {
+                                    "novel_id": novel_id,
+                                    "chapter": chapter_num,
+                                    "usage": ontology_result.get("usage", {}),
+                                    "collections": ontology_result.get("collections", []),
+                                },
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            "Book ontology update failed for chapter %d: %s",
+                            chapter_num,
+                            e,
+                        )
+
                 # Scene extraction via LLM (non-fatal)
                 # Must run AFTER insert_chapter_fact so the row exists for UPDATE
                 if _cfg.SCENE_LLM_ENABLED:

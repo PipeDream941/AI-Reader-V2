@@ -185,6 +185,52 @@ CREATE TABLE IF NOT EXISTS benchmark_records (
     created_at      TEXT DEFAULT (datetime('now'))
 );
 
+-- Adaptive, book-specific ontology. The latest snapshot is kept separately
+-- from immutable versions so reads stay cheap while every accepted change is
+-- auditable and reversible.
+CREATE TABLE IF NOT EXISTS book_ontologies (
+    novel_id        TEXT PRIMARY KEY REFERENCES novels(id) ON DELETE CASCADE,
+    current_version INTEGER NOT NULL DEFAULT 0,
+    ontology_json   TEXT NOT NULL,
+    created_at      TEXT DEFAULT (datetime('now')),
+    updated_at      TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS book_ontology_versions (
+    novel_id        TEXT NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+    version         INTEGER NOT NULL,
+    ontology_json   TEXT NOT NULL,
+    change_summary  TEXT NOT NULL DEFAULT '',
+    source_chapters TEXT NOT NULL DEFAULT '[]',
+    created_at      TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (novel_id, version)
+);
+
+CREATE TABLE IF NOT EXISTS book_ontology_proposals (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    novel_id         TEXT NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+    fingerprint      TEXT NOT NULL,
+    proposal_json    TEXT NOT NULL,
+    occurrence_count INTEGER NOT NULL DEFAULT 1,
+    first_chapter    INTEGER NOT NULL,
+    last_chapter     INTEGER NOT NULL,
+    status           TEXT NOT NULL DEFAULT 'pending',
+    created_at       TEXT DEFAULT (datetime('now')),
+    updated_at       TEXT DEFAULT (datetime('now')),
+    UNIQUE(novel_id, fingerprint)
+);
+
+CREATE TABLE IF NOT EXISTS book_collection_members (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    novel_id       TEXT NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+    collection_id  TEXT NOT NULL,
+    entity_name    TEXT NOT NULL,
+    member_json    TEXT NOT NULL,
+    source_chapter INTEGER NOT NULL,
+    created_at     TEXT DEFAULT (datetime('now')),
+    UNIQUE(novel_id, collection_id, entity_name)
+);
+
 CREATE INDEX IF NOT EXISTS idx_usage_events_type     ON usage_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_usage_events_time     ON usage_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_entity_dict_novel    ON entity_dictionary(novel_id, entity_type);
@@ -193,6 +239,8 @@ CREATE INDEX IF NOT EXISTS idx_chapter_facts_novel   ON chapter_facts(novel_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conv         ON messages(conversation_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_analysis_novel        ON analysis_tasks(novel_id, status);
 CREATE INDEX IF NOT EXISTS idx_layer_layouts_novel   ON layer_layouts(novel_id);
+CREATE INDEX IF NOT EXISTS idx_ontology_proposals    ON book_ontology_proposals(novel_id, status);
+CREATE INDEX IF NOT EXISTS idx_collection_members    ON book_collection_members(novel_id, collection_id);
 """
 
 

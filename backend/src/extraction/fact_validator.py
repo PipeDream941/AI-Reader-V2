@@ -1328,6 +1328,7 @@ class FactValidator:
             events=events,
             new_concepts=new_concepts,
             world_declarations=world_declarations,
+            ontology_observations=fact.ontology_observations,
         )
 
     def _validate_characters(

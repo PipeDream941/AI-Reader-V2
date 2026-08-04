@@ -27,6 +27,7 @@ from src.api.routes import (
     conflicts,
     scenes,
     usage,
+    book_ontology,
 )
 from src.api.websocket import analysis_ws, chat_ws
 
@@ -148,6 +149,7 @@ app.include_router(backup.router)
 app.include_router(conflicts.router)
 app.include_router(scenes.router)
 app.include_router(usage.router)
+app.include_router(book_ontology.router)
 
 # WebSocket routes
 app.include_router(analysis_ws.router)
@@ -171,6 +173,7 @@ async def health():
             "max_batch_chapters": config.CODEX_MAX_BATCH_CHAPTERS,
             "scene_llm_enabled": config.SCENE_LLM_ENABLED,
             "auxiliary_llm_enabled": config.AUXILIARY_LLM_ENABLED,
+            "book_ontology_enabled": config.BOOK_ONTOLOGY_ENABLED,
             "vot_spatial_enabled": config.VOT_SPATIAL_ENABLED,
         }
     return result

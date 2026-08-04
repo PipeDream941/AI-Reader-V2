@@ -173,6 +173,18 @@ class ContextSummaryBuilder:
         if world_section:
             sections.append(world_section)
 
+        # Versioned book-specific ontology. This is intentionally an overlay on
+        # the stable ChapterFact schema: later discoveries guide subsequent
+        # chapters without changing database columns or erasing old facts.
+        try:
+            from src.services.book_ontology_controller import BookOntologyController
+
+            ontology_section = await BookOntologyController().current_context(novel_id)
+        except Exception:
+            ontology_section = ""
+        if ontology_section:
+            sections.append(ontology_section)
+
         # Geographic state document (accumulated knowledge from prior chapters)
         geo_state = self._build_geo_state_section(
             chapter_facts, chapter_num, location_parents, location_tiers,

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, field_validator
 
+from src.models.book_ontology import OntologyObservation
+
 
 class AbilityGained(BaseModel):
     dimension: str = ""  # "境界" / "技能" / "身份"
@@ -134,3 +136,4 @@ class ChapterFact(BaseModel):
     events: list[EventFact] = []
     new_concepts: list[ConceptFact] = []
     world_declarations: list[WorldDeclaration] = []
+    ontology_observations: list[OntologyObservation] = []

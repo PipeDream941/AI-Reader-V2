@@ -24,12 +24,12 @@ dependencies = [
     "matplotlib>=3.9.4",
     "anthropic>=0.86.0",
     "python-louvain>=0.16",
+    "opencc-python-reimplemented>=0.1.7",
 ]
 
 [dependency-groups]
 dev = [
     "aiosqlite>=0.22.1",
-    "opencc-python-reimplemented>=0.1.7",
     "pyinstaller>=6.19.0",
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",

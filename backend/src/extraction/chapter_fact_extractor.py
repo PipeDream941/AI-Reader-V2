@@ -163,6 +163,20 @@ def _merge_chapter_facts(
                 wd_seen.add(key)
                 world_declarations.append(wd)
 
+    # Adaptive ontology observations: merge the same semantic candidate across
+    # long-chapter segments while preserving the strongest evidence record.
+    observation_map: dict[tuple[str, str, str], object] = {}
+    for fact in facts:
+        for observation in fact.ontology_observations:
+            key = (
+                observation.kind,
+                observation.parent_core_type,
+                observation.label.strip().lower(),
+            )
+            previous = observation_map.get(key)
+            if previous is None or observation.confidence > previous.confidence:
+                observation_map[key] = observation
+
     return ChapterFact(
         chapter_id=chapter_id,
         novel_id=novel_id,
@@ -175,6 +189,7 @@ def _merge_chapter_facts(
         events=events,
         new_concepts=list(concept_map.values()),
         world_declarations=world_declarations,
+        ontology_observations=list(observation_map.values()),
     )
 
 
@@ -294,6 +309,7 @@ class ChapterFactExtractor:
             "6. world_declarations：当文中有世界宏观结构描述时必须提取（区域划分region_division、区域方位region_position、空间层layer_exists如天界/地府/海底、传送通道portal），没有则输出空列表\n"
             "7. new_concepts：功法、丹药、修炼体系、世界观规则等首次出现或有详细介绍的概念，definition 必须详细（2-5句话）\n"
             "8. 只提取原文明确出现的内容，禁止编造\n"
+            "9. ontology_observations：只报告可跨章节复用的本书特有结构候选；普通名词不要升级。能映射到前序已确认结构时不要创建近义重复项；没有则输出空列表\n"
         )
 
     async def extract(

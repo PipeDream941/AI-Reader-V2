@@ -67,6 +67,29 @@ async def seeded_db(mock_get_connection):
         (NOVEL_ID, ws, "[1,2]"),
     )
 
+    # v6 adaptive ontology data
+    ontology_json = json.dumps({
+        "novel_id": NOVEL_ID,
+        "version": 1,
+        "definitions": [],
+    })
+    await db.execute(
+        "INSERT INTO book_ontologies (novel_id, current_version, ontology_json) VALUES (?, ?, ?)",
+        (NOVEL_ID, 1, ontology_json),
+    )
+    await db.execute(
+        "INSERT INTO book_ontology_versions (novel_id, version, ontology_json, change_summary, source_chapters) VALUES (?, ?, ?, ?, ?)",
+        (NOVEL_ID, 1, ontology_json, "新增测试结构", "[1]"),
+    )
+    await db.execute(
+        "INSERT INTO book_ontology_proposals (novel_id, fingerprint, proposal_json, first_chapter, last_chapter) VALUES (?, ?, ?, ?, ?)",
+        (NOVEL_ID, "fingerprint-1", "{}", 1, 1),
+    )
+    await db.execute(
+        "INSERT INTO book_collection_members (novel_id, collection_id, entity_name, member_json, source_chapter) VALUES (?, ?, ?, ?, ?)",
+        (NOVEL_ID, "collection-1", "孙悟空", '{"entity_name":"孙悟空","values":[],"evidence":"原文"}', 1),
+    )
+
     await db.commit()
     return db
 
@@ -124,6 +147,15 @@ async def test_export_v2_chapter_facts(seeded_db):
 
 
 @pytest.mark.asyncio
+async def test_export_v6_has_adaptive_ontology(seeded_db):
+    result = await export_novel(NOVEL_ID)
+    assert result["book_ontology"]["current_version"] == 1
+    assert len(result["book_ontology_versions"]) == 1
+    assert len(result["book_ontology_proposals"]) == 1
+    assert len(result["book_collection_members"]) == 1
+
+
+@pytest.mark.asyncio
 async def test_export_skip_content(seeded_db):
     result = await export_novel(NOVEL_ID, skip_content=True)
     for ch in result["chapters"]:
@@ -155,6 +187,10 @@ async def test_import_v2_full(seeded_db):
     assert result["facts_imported"] == 2
     assert result["entity_dict_imported"] == 2
     assert result["has_world_structures"] is True
+    assert result["has_book_ontology"] is True
+    assert result["ontology_versions_imported"] == 1
+    assert result["ontology_proposals_imported"] == 1
+    assert result["collection_members_imported"] == 1
 
     new_id = result["id"]
     assert new_id != NOVEL_ID  # New UUID
@@ -186,6 +222,11 @@ async def test_import_v2_full(seeded_db):
     )
     ws = await cur.fetchone()
     assert ws is not None
+
+    cur = await seeded_db.execute(
+        "SELECT current_version FROM book_ontologies WHERE novel_id = ?", (new_id,)
+    )
+    assert (await cur.fetchone())["current_version"] == 1
 
 
 @pytest.mark.asyncio

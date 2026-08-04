@@ -8,8 +8,8 @@ from src.db.sqlite_db import get_connection
 
 logger = logging.getLogger(__name__)
 
-CURRENT_FORMAT_VERSION = 5
-SUPPORTED_FORMAT_VERSIONS = {1, 2, 3, 4, 5}
+CURRENT_FORMAT_VERSION = 6
+SUPPORTED_FORMAT_VERSIONS = {1, 2, 3, 4, 5, 6}
 
 
 async def _build_precomputed(novel_id: str) -> dict | None:
@@ -66,8 +66,8 @@ async def _build_precomputed(novel_id: str) -> dict | None:
 async def export_novel(novel_id: str, *, skip_content: bool = False) -> dict:
     """Export a novel with all associated data.
 
-    Format v5 adds: scenes_json, cost/quality columns, map_layouts,
-    layer_layouts, conversations + messages.
+    Format v6 adds the versioned book ontology, pending structure proposals and
+    populated collection members.
     """
     conn = await get_connection()
     try:
@@ -179,6 +179,36 @@ async def export_novel(novel_id: str, *, skip_content: bool = False) -> dict:
             )
             messages = [dict(r) for r in await cur.fetchall()]
 
+        # v6: Adaptive ontology, audit history, proposals and collection data.
+        cur = await conn.execute(
+            "SELECT current_version, ontology_json, created_at, updated_at FROM book_ontologies WHERE novel_id = ?",
+            (novel_id,),
+        )
+        ontology_row = await cur.fetchone()
+        book_ontology = dict(ontology_row) if ontology_row else None
+
+        cur = await conn.execute(
+            "SELECT version, ontology_json, change_summary, source_chapters, created_at FROM book_ontology_versions WHERE novel_id = ? ORDER BY version",
+            (novel_id,),
+        )
+        ontology_versions = [dict(r) for r in await cur.fetchall()]
+
+        cur = await conn.execute(
+            """SELECT fingerprint, proposal_json, occurrence_count,
+                      first_chapter, last_chapter, status, created_at, updated_at
+               FROM book_ontology_proposals WHERE novel_id = ? ORDER BY id""",
+            (novel_id,),
+        )
+        ontology_proposals = [dict(r) for r in await cur.fetchall()]
+
+        cur = await conn.execute(
+            """SELECT collection_id, entity_name, member_json,
+                      source_chapter, created_at
+               FROM book_collection_members WHERE novel_id = ? ORDER BY id""",
+            (novel_id,),
+        )
+        collection_members = [dict(r) for r in await cur.fetchall()]
+
         # v4: Build precomputed visualization data for desktop import
         precomputed = await _build_precomputed(novel_id)
 
@@ -197,6 +227,10 @@ async def export_novel(novel_id: str, *, skip_content: bool = False) -> dict:
             "layer_layouts": layer_layouts,
             "conversations": conversations,
             "messages": messages,
+            "book_ontology": book_ontology,
+            "book_ontology_versions": ontology_versions,
+            "book_ontology_proposals": ontology_proposals,
+            "book_collection_members": collection_members,
         }
         if precomputed:
             result["precomputed"] = precomputed
@@ -228,6 +262,10 @@ async def import_novel(data: dict, overwrite: bool = False) -> dict:
     layer_layouts = data.get("layer_layouts", [])
     conversations = data.get("conversations", [])
     messages = data.get("messages", [])
+    book_ontology = data.get("book_ontology")
+    ontology_versions = data.get("book_ontology_versions", [])
+    ontology_proposals = data.get("book_ontology_proposals", [])
+    collection_members = data.get("book_collection_members", [])
 
     conn = await get_connection()
     try:
@@ -365,6 +403,78 @@ async def import_novel(data: dict, overwrite: bool = False) -> dict:
                     world_struct["structure_json"],
                     world_struct.get("source_chapters", "[]"),
                 ),
+            )
+
+        # v6: Import adaptive ontology data with the newly assigned novel id.
+        if book_ontology:
+            await conn.execute(
+                """INSERT INTO book_ontologies
+                   (novel_id, current_version, ontology_json, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (
+                    novel_id,
+                    book_ontology.get("current_version", 0),
+                    book_ontology["ontology_json"],
+                    book_ontology.get("created_at"),
+                    book_ontology.get("updated_at"),
+                ),
+            )
+        if ontology_versions:
+            await conn.executemany(
+                """INSERT INTO book_ontology_versions
+                   (novel_id, version, ontology_json, change_summary,
+                    source_chapters, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                [
+                    (
+                        novel_id,
+                        item["version"],
+                        item["ontology_json"],
+                        item.get("change_summary", ""),
+                        item.get("source_chapters", "[]"),
+                        item.get("created_at"),
+                    )
+                    for item in ontology_versions
+                ],
+            )
+        if ontology_proposals:
+            await conn.executemany(
+                """INSERT INTO book_ontology_proposals
+                   (novel_id, fingerprint, proposal_json, occurrence_count,
+                    first_chapter, last_chapter, status, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [
+                    (
+                        novel_id,
+                        item["fingerprint"],
+                        item["proposal_json"],
+                        item.get("occurrence_count", 1),
+                        item["first_chapter"],
+                        item["last_chapter"],
+                        item.get("status", "pending"),
+                        item.get("created_at"),
+                        item.get("updated_at"),
+                    )
+                    for item in ontology_proposals
+                ],
+            )
+        if collection_members:
+            await conn.executemany(
+                """INSERT INTO book_collection_members
+                   (novel_id, collection_id, entity_name, member_json,
+                    source_chapter, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                [
+                    (
+                        novel_id,
+                        item["collection_id"],
+                        item["entity_name"],
+                        item["member_json"],
+                        item["source_chapter"],
+                        item.get("created_at"),
+                    )
+                    for item in collection_members
+                ],
             )
 
         # Import bookmarks
@@ -518,6 +628,10 @@ async def import_novel(data: dict, overwrite: bool = False) -> dict:
             "layer_layouts_imported": len(layer_layouts),
             "conversations_imported": len(conversations),
             "messages_imported": len(messages),
+            "has_book_ontology": book_ontology is not None,
+            "ontology_versions_imported": len(ontology_versions),
+            "ontology_proposals_imported": len(ontology_proposals),
+            "collection_members_imported": len(collection_members),
             "existing_overwritten": existing is not None and overwrite,
         }
     finally:
@@ -539,6 +653,9 @@ def preview_import(data: dict) -> dict:
     map_overrides = data.get("map_user_overrides", [])
     ws_overrides = data.get("world_structure_overrides", [])
     conversations = data.get("conversations", [])
+    book_ontology = data.get("book_ontology")
+    ontology_proposals = data.get("book_ontology_proposals", [])
+    collection_members = data.get("book_collection_members", [])
 
     total_words = sum(ch.get("word_count", 0) for ch in chapters)
     analyzed_count = sum(1 for ch in chapters if ch.get("analysis_status") == "completed")
@@ -559,5 +676,8 @@ def preview_import(data: dict) -> dict:
         "map_overrides_count": len(map_overrides),
         "ws_overrides_count": len(ws_overrides),
         "conversations_count": len(conversations),
+        "has_book_ontology": book_ontology is not None,
+        "ontology_proposals_count": len(ontology_proposals),
+        "collection_members_count": len(collection_members),
         "data_size_bytes": data_size,
     }

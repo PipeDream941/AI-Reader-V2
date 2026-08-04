@@ -1,0 +1,769 @@
+{
+  "_meta": {
+    "benchmark": "water-margin-108-roster",
+    "source_file": "水滸傳-袁無涯一百二十回本.txt",
+    "source_sha256": "8fd2cc596f7e4cf5ce52c9a72f18b7b02a0b80f1ebef463c7c9f6788d811bd2a",
+    "source_chapter": 71,
+    "source_chapter_title": "第七十一回　忠義堂石碣受天文　梁山泊英雄排座次",
+    "expected_count": 108,
+    "prompt_contamination_policy": "gold is loaded only after inference"
+  },
+  "members": [
+    {
+      "rank": 1,
+      "group": "天罡",
+      "star": "天魁星",
+      "nickname": "呼保義",
+      "name": "宋江"
+    },
+    {
+      "rank": 2,
+      "group": "天罡",
+      "star": "天罡星",
+      "nickname": "玉麒麟",
+      "name": "盧俊義"
+    },
+    {
+      "rank": 3,
+      "group": "天罡",
+      "star": "天機星",
+      "nickname": "智多星",
+      "name": "吳用"
+    },
+    {
+      "rank": 4,
+      "group": "天罡",
+      "star": "天閑星",
+      "nickname": "入雲龍",
+      "name": "公孫勝"
+    },
+    {
+      "rank": 5,
+      "group": "天罡",
+      "star": "天勇星",
+      "nickname": "大刀",
+      "name": "關勝"
+    },
+    {
+      "rank": 6,
+      "group": "天罡",
+      "star": "天雄星",
+      "nickname": "豹子頭",
+      "name": "林沖"
+    },
+    {
+      "rank": 7,
+      "group": "天罡",
+      "star": "天猛星",
+      "nickname": "霹靂火",
+      "name": "秦明"
+    },
+    {
+      "rank": 8,
+      "group": "天罡",
+      "star": "天威星",
+      "nickname": "雙鞭",
+      "name": "呼延灼"
+    },
+    {
+      "rank": 9,
+      "group": "天罡",
+      "star": "天英星",
+      "nickname": "小李廣",
+      "name": "花榮"
+    },
+    {
+      "rank": 10,
+      "group": "天罡",
+      "star": "天貴星",
+      "nickname": "小旋風",
+      "name": "柴進"
+    },
+    {
+      "rank": 11,
+      "group": "天罡",
+      "star": "天富星",
+      "nickname": "撲天雕",
+      "name": "李應"
+    },
+    {
+      "rank": 12,
+      "group": "天罡",
+      "star": "天滿星",
+      "nickname": "美髯公",
+      "name": "朱仝"
+    },
+    {
+      "rank": 13,
+      "group": "天罡",
+      "star": "天孤星",
+      "nickname": "花和尚",
+      "name": "魯智深"
+    },
+    {
+      "rank": 14,
+      "group": "天罡",
+      "star": "天傷星",
+      "nickname": "行者",
+      "name": "武松"
+    },
+    {
+      "rank": 15,
+      "group": "天罡",
+      "star": "天立星",
+      "nickname": "雙鎗將",
+      "name": "董平"
+    },
+    {
+      "rank": 16,
+      "group": "天罡",
+      "star": "天捷星",
+      "nickname": "沒羽箭",
+      "name": "張清"
+    },
+    {
+      "rank": 17,
+      "group": "天罡",
+      "star": "天暗星",
+      "nickname": "青面獸",
+      "name": "楊志"
+    },
+    {
+      "rank": 18,
+      "group": "天罡",
+      "star": "天祐星",
+      "nickname": "金鎗手",
+      "name": "徐寧"
+    },
+    {
+      "rank": 19,
+      "group": "天罡",
+      "star": "天空星",
+      "nickname": "急先鋒",
+      "name": "索超"
+    },
+    {
+      "rank": 20,
+      "group": "天罡",
+      "star": "天速星",
+      "nickname": "神行太保",
+      "name": "戴宗"
+    },
+    {
+      "rank": 21,
+      "group": "天罡",
+      "star": "天異星",
+      "nickname": "赤髮鬼",
+      "name": "劉唐"
+    },
+    {
+      "rank": 22,
+      "group": "天罡",
+      "star": "天殺星",
+      "nickname": "黑旋風",
+      "name": "李逵"
+    },
+    {
+      "rank": 23,
+      "group": "天罡",
+      "star": "天微星",
+      "nickname": "九紋龍",
+      "name": "史進"
+    },
+    {
+      "rank": 24,
+      "group": "天罡",
+      "star": "天究星",
+      "nickname": "沒遮攔",
+      "name": "穆弘"
+    },
+    {
+      "rank": 25,
+      "group": "天罡",
+      "star": "天退星",
+      "nickname": "插翅虎",
+      "name": "雷橫"
+    },
+    {
+      "rank": 26,
+      "group": "天罡",
+      "star": "天壽星",
+      "nickname": "混江龍",
+      "name": "李俊"
+    },
+    {
+      "rank": 27,
+      "group": "天罡",
+      "star": "天劍星",
+      "nickname": "立地太歲",
+      "name": "阮小二"
+    },
+    {
+      "rank": 28,
+      "group": "天罡",
+      "star": "天平星",
+      "nickname": "船火兒",
+      "name": "張橫"
+    },
+    {
+      "rank": 29,
+      "group": "天罡",
+      "star": "天罪星",
+      "nickname": "短命二郎",
+      "name": "阮小五"
+    },
+    {
+      "rank": 30,
+      "group": "天罡",
+      "star": "天損星",
+      "nickname": "浪裏白跳",
+      "name": "張順"
+    },
+    {
+      "rank": 31,
+      "group": "天罡",
+      "star": "天敗星",
+      "nickname": "活閻羅",
+      "name": "阮小七"
+    },
+    {
+      "rank": 32,
+      "group": "天罡",
+      "star": "天牢星",
+      "nickname": "病關索",
+      "name": "楊雄"
+    },
+    {
+      "rank": 33,
+      "group": "天罡",
+      "star": "天慧星",
+      "nickname": "拚命三郎",
+      "name": "石秀"
+    },
+    {
+      "rank": 34,
+      "group": "天罡",
+      "star": "天暴星",
+      "nickname": "兩頭蛇",
+      "name": "解珍"
+    },
+    {
+      "rank": 35,
+      "group": "天罡",
+      "star": "天哭星",
+      "nickname": "雙尾蝎",
+      "name": "解寶"
+    },
+    {
+      "rank": 36,
+      "group": "天罡",
+      "star": "天巧星",
+      "nickname": "浪子",
+      "name": "燕青"
+    },
+    {
+      "rank": 37,
+      "group": "地煞",
+      "star": "地魁星",
+      "nickname": "神機軍師",
+      "name": "朱武"
+    },
+    {
+      "rank": 38,
+      "group": "地煞",
+      "star": "地煞星",
+      "nickname": "鎮三山",
+      "name": "黃信"
+    },
+    {
+      "rank": 39,
+      "group": "地煞",
+      "star": "地勇星",
+      "nickname": "病尉遲",
+      "name": "孫立"
+    },
+    {
+      "rank": 40,
+      "group": "地煞",
+      "star": "地傑星",
+      "nickname": "醜郡馬",
+      "name": "宣贊"
+    },
+    {
+      "rank": 41,
+      "group": "地煞",
+      "star": "地雄星",
+      "nickname": "井木犴",
+      "name": "郝思文"
+    },
+    {
+      "rank": 42,
+      "group": "地煞",
+      "star": "地威星",
+      "nickname": "百勝將",
+      "name": "韓滔"
+    },
+    {
+      "rank": 43,
+      "group": "地煞",
+      "star": "地英星",
+      "nickname": "天目將",
+      "name": "彭玘"
+    },
+    {
+      "rank": 44,
+      "group": "地煞",
+      "star": "地奇星",
+      "nickname": "聖水將",
+      "name": "單廷珪"
+    },
+    {
+      "rank": 45,
+      "group": "地煞",
+      "star": "地猛星",
+      "nickname": "神火將",
+      "name": "魏定國"
+    },
+    {
+      "rank": 46,
+      "group": "地煞",
+      "star": "地文星",
+      "nickname": "聖手書生",
+      "name": "蕭讓"
+    },
+    {
+      "rank": 47,
+      "group": "地煞",
+      "star": "地正星",
+      "nickname": "鐵面孔目",
+      "name": "裴宣"
+    },
+    {
+      "rank": 48,
+      "group": "地煞",
+      "star": "地闊星",
+      "nickname": "摩雲金翅",
+      "name": "歐鵬"
+    },
+    {
+      "rank": 49,
+      "group": "地煞",
+      "star": "地闔星",
+      "nickname": "火眼狻猊",
+      "name": "鄧飛"
+    },
+    {
+      "rank": 50,
+      "group": "地煞",
+      "star": "地強星",
+      "nickname": "錦毛虎",
+      "name": "燕順"
+    },
+    {
+      "rank": 51,
+      "group": "地煞",
+      "star": "地暗星",
+      "nickname": "錦豹子",
+      "name": "楊林"
+    },
+    {
+      "rank": 52,
+      "group": "地煞",
+      "star": "地軸星",
+      "nickname": "轟天雷",
+      "name": "凌振"
+    },
+    {
+      "rank": 53,
+      "group": "地煞",
+      "star": "地會星",
+      "nickname": "神算子",
+      "name": "蔣敬"
+    },
+    {
+      "rank": 54,
+      "group": "地煞",
+      "star": "地佐星",
+      "nickname": "小溫侯",
+      "name": "呂方"
+    },
+    {
+      "rank": 55,
+      "group": "地煞",
+      "star": "地祐星",
+      "nickname": "賽仁貴",
+      "name": "郭盛"
+    },
+    {
+      "rank": 56,
+      "group": "地煞",
+      "star": "地靈星",
+      "nickname": "神醫",
+      "name": "安道全"
+    },
+    {
+      "rank": 57,
+      "group": "地煞",
+      "star": "地獸星",
+      "nickname": "紫髯伯",
+      "name": "皇甫端"
+    },
+    {
+      "rank": 58,
+      "group": "地煞",
+      "star": "地微星",
+      "nickname": "矮腳虎",
+      "name": "王英"
+    },
+    {
+      "rank": 59,
+      "group": "地煞",
+      "star": "地慧星",
+      "nickname": "一丈青",
+      "name": "扈三娘"
+    },
+    {
+      "rank": 60,
+      "group": "地煞",
+      "star": "地暴星",
+      "nickname": "喪門神",
+      "name": "鮑旭"
+    },
+    {
+      "rank": 61,
+      "group": "地煞",
+      "star": "地然星",
+      "nickname": "混世魔王",
+      "name": "樊瑞"
+    },
+    {
+      "rank": 62,
+      "group": "地煞",
+      "star": "地猖星",
+      "nickname": "毛頭星",
+      "name": "孔明"
+    },
+    {
+      "rank": 63,
+      "group": "地煞",
+      "star": "地狂星",
+      "nickname": "獨火星",
+      "name": "孔亮"
+    },
+    {
+      "rank": 64,
+      "group": "地煞",
+      "star": "地飛星",
+      "nickname": "八臂那吒",
+      "name": "項充"
+    },
+    {
+      "rank": 65,
+      "group": "地煞",
+      "star": "地走星",
+      "nickname": "飛天大聖",
+      "name": "李袞"
+    },
+    {
+      "rank": 66,
+      "group": "地煞",
+      "star": "地巧星",
+      "nickname": "玉臂匠",
+      "name": "金大堅"
+    },
+    {
+      "rank": 67,
+      "group": "地煞",
+      "star": "地明星",
+      "nickname": "鐵笛仙",
+      "name": "馬麟"
+    },
+    {
+      "rank": 68,
+      "group": "地煞",
+      "star": "地進星",
+      "nickname": "出洞蛟",
+      "name": "童威"
+    },
+    {
+      "rank": 69,
+      "group": "地煞",
+      "star": "地退星",
+      "nickname": "翻江蜃",
+      "name": "童猛"
+    },
+    {
+      "rank": 70,
+      "group": "地煞",
+      "star": "地滿星",
+      "nickname": "玉旛竿",
+      "name": "孟康"
+    },
+    {
+      "rank": 71,
+      "group": "地煞",
+      "star": "地遂星",
+      "nickname": "通臂猿",
+      "name": "侯健"
+    },
+    {
+      "rank": 72,
+      "group": "地煞",
+      "star": "地周星",
+      "nickname": "跳澗虎",
+      "name": "陳達"
+    },
+    {
+      "rank": 73,
+      "group": "地煞",
+      "star": "地隱星",
+      "nickname": "白花蛇",
+      "name": "楊春"
+    },
+    {
+      "rank": 74,
+      "group": "地煞",
+      "star": "地異星",
+      "nickname": "白面郎君",
+      "name": "鄭天壽"
+    },
+    {
+      "rank": 75,
+      "group": "地煞",
+      "star": "地理星",
+      "nickname": "九尾龜",
+      "name": "陶宗旺"
+    },
+    {
+      "rank": 76,
+      "group": "地煞",
+      "star": "地俊星",
+      "nickname": "鐵扇子",
+      "name": "宋清"
+    },
+    {
+      "rank": 77,
+      "group": "地煞",
+      "star": "地樂星",
+      "nickname": "鐵叫子",
+      "name": "樂和"
+    },
+    {
+      "rank": 78,
+      "group": "地煞",
+      "star": "地捷星",
+      "nickname": "花項虎",
+      "name": "龔旺"
+    },
+    {
+      "rank": 79,
+      "group": "地煞",
+      "star": "地速星",
+      "nickname": "中箭虎",
+      "name": "丁得孫"
+    },
+    {
+      "rank": 80,
+      "group": "地煞",
+      "star": "地鎮星",
+      "nickname": "小遮攔",
+      "name": "穆春"
+    },
+    {
+      "rank": 81,
+      "group": "地煞",
+      "star": "地嵇星",
+      "nickname": "操刀鬼",
+      "name": "曹正"
+    },
+    {
+      "rank": 82,
+      "group": "地煞",
+      "star": "地魔星",
+      "nickname": "雲裏金剛",
+      "name": "宋萬"
+    },
+    {
+      "rank": 83,
+      "group": "地煞",
+      "star": "地妖星",
+      "nickname": "摸著天",
+      "name": "杜遷"
+    },
+    {
+      "rank": 84,
+      "group": "地煞",
+      "star": "地幽星",
+      "nickname": "病大蟲",
+      "name": "薛永"
+    },
+    {
+      "rank": 85,
+      "group": "地煞",
+      "star": "地伏星",
+      "nickname": "金眼彪",
+      "name": "施恩"
+    },
+    {
+      "rank": 86,
+      "group": "地煞",
+      "star": "地僻星",
+      "nickname": "打虎將",
+      "name": "李忠"
+    },
+    {
+      "rank": 87,
+      "group": "地煞",
+      "star": "地空星",
+      "nickname": "小霸王",
+      "name": "周通"
+    },
+    {
+      "rank": 88,
+      "group": "地煞",
+      "star": "地孤星",
+      "nickname": "金錢豹子",
+      "name": "湯隆"
+    },
+    {
+      "rank": 89,
+      "group": "地煞",
+      "star": "地全星",
+      "nickname": "鬼臉兒",
+      "name": "杜興"
+    },
+    {
+      "rank": 90,
+      "group": "地煞",
+      "star": "地短星",
+      "nickname": "出林龍",
+      "name": "鄒淵"
+    },
+    {
+      "rank": 91,
+      "group": "地煞",
+      "star": "地角星",
+      "nickname": "獨角龍",
+      "name": "鄒潤"
+    },
+    {
+      "rank": 92,
+      "group": "地煞",
+      "star": "地囚星",
+      "nickname": "旱地忽律",
+      "name": "朱貴"
+    },
+    {
+      "rank": 93,
+      "group": "地煞",
+      "star": "地藏星",
+      "nickname": "笑面虎",
+      "name": "朱富"
+    },
+    {
+      "rank": 94,
+      "group": "地煞",
+      "star": "地平星",
+      "nickname": "鐵臂膊",
+      "name": "蔡福"
+    },
+    {
+      "rank": 95,
+      "group": "地煞",
+      "star": "地損星",
+      "nickname": "一枝花",
+      "name": "蔡慶"
+    },
+    {
+      "rank": 96,
+      "group": "地煞",
+      "star": "地奴星",
+      "nickname": "催命判官",
+      "name": "李立"
+    },
+    {
+      "rank": 97,
+      "group": "地煞",
+      "star": "地察星",
+      "nickname": "青眼虎",
+      "name": "李雲"
+    },
+    {
+      "rank": 98,
+      "group": "地煞",
+      "star": "地惡星",
+      "nickname": "沒面目",
+      "name": "焦挺"
+    },
+    {
+      "rank": 99,
+      "group": "地煞",
+      "star": "地醜星",
+      "nickname": "石將軍",
+      "name": "石勇"
+    },
+    {
+      "rank": 100,
+      "group": "地煞",
+      "star": "地數星",
+      "nickname": "小尉遲",
+      "name": "孫新"
+    },
+    {
+      "rank": 101,
+      "group": "地煞",
+      "star": "地陰星",
+      "nickname": "母大蟲",
+      "name": "顧大嫂"
+    },
+    {
+      "rank": 102,
+      "group": "地煞",
+      "star": "地刑星",
+      "nickname": "菜園子",
+      "name": "張青"
+    },
+    {
+      "rank": 103,
+      "group": "地煞",
+      "star": "地壯星",
+      "nickname": "母夜叉",
+      "name": "孫二娘"
+    },
+    {
+      "rank": 104,
+      "group": "地煞",
+      "star": "地劣星",
+      "nickname": "活閃婆",
+      "name": "王定六"
+    },
+    {
+      "rank": 105,
+      "group": "地煞",
+      "star": "地健星",
+      "nickname": "險道神",
+      "name": "郁保四"
+    },
+    {
+      "rank": 106,
+      "group": "地煞",
+      "star": "地耗星",
+      "nickname": "白日鼠",
+      "name": "白勝"
+    },
+    {
+      "rank": 107,
+      "group": "地煞",
+      "star": "地賊星",
+      "nickname": "鼓上蚤",
+      "name": "時遷"
+    },
+    {
+      "rank": 108,
+      "group": "地煞",
+      "star": "地狗星",
+      "nickname": "金毛犬",
+      "name": "段景住"
+    }
+  ]
+}

@@ -84,6 +84,7 @@ async def test_health_exposes_quota_sensitive_codex_profile(monkeypatch):
         "scene_llm_enabled": False,
         "auxiliary_llm_enabled": False,
         "vot_spatial_enabled": False,
+        "book_ontology_enabled": True,
     }
 
 

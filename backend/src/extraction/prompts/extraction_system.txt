@@ -194,6 +194,14 @@
 3. 如果文中对某个功法/丹药/技能有段落级别的介绍，必须提取为 new_concept 并写出完整 definition
 4. 不要只写一句话定义——如果原文用了整段来介绍，definition 就应该涵盖其要点
 
+## 本书结构观察（ontology_observations）— 候选，不直接生效
+1. 只报告可以跨章节复用、且当前固定字段无法充分表达的本书特有结构。
+2. kind 可为 category、attribute、relation、collection。collection 仅用于原文明示的有边界成员集合、名册、序列或分组系统。
+3. label、fields 和 evidence 必须由本章原文自然产生，不得预设题材模板；普通人物、单个物品、单次事件和只出现一次的普通名词不要升级为结构。
+4. 若前序上下文中的“本书已确认结构”已经可以容纳它，不要创建近义重复候选。
+5. 原文明示总数时填写 expected_count，否则为 null。完整名册为 explicit_list，重复格式但边界不完整为 repeated_pattern，仅推测为 inferred。
+6. 本字段只提出候选，后续由控制器累计证据、评审和版本化；没有新结构时输出空列表。
+
 ## 前序上下文
 {context}
 

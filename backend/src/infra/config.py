@@ -39,6 +39,13 @@ AUXILIARY_LLM_ENABLED = os.environ.get("AUXILIARY_LLM_ENABLED", "true").lower() 
     "1", "true", "yes", "on",
 }
 
+# Book-specific ontology discovery adds no extra per-chapter call by default:
+# the core extractor emits lightweight candidates. A dedicated LLM pass only
+# runs when the deterministic scout sees a strongly structured passage.
+BOOK_ONTOLOGY_ENABLED = os.environ.get("BOOK_ONTOLOGY_ENABLED", "true").lower() in {
+    "1", "true", "yes", "on",
+}
+
 # Cloud LLM settings (used when LLM_PROVIDER="openai")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "")
